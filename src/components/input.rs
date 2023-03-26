@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub struct Input {
     // Add input device state and handling here
 }

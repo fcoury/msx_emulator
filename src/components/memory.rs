@@ -30,6 +30,7 @@ impl Memory {
         (high_byte << 8) | low_byte
     }
 
+    #[allow(unused)]
     pub fn load_rom(&mut self, start_address: u16, data: &[u8]) {
         let start = start_address as usize;
         let end = start + data.len();

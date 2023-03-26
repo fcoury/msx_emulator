@@ -1,6 +1,6 @@
 use log::{info, trace};
 
-use super::memory::Memory;
+use super::{devices::DummyIODevice, memory::Memory, IoDevice};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Flag {
@@ -33,12 +33,16 @@ pub struct Z80 {
 
     // Interrupt mode
     pub im: u8,
+    interrupt_request: bool,
 
     // Halted?
     pub halted: bool,
 
     // Memory
-    memory: Memory,
+    pub memory: Memory,
+
+    // I/O Devices
+    io_devices: Vec<Box<dyn IoDevice>>,
 
     // Debug options
     pub max_cycles: Option<u64>,
@@ -47,6 +51,7 @@ pub struct Z80 {
 
 impl Z80 {
     pub fn new(memory: Memory) -> Self {
+        let io_devices: Vec<Box<dyn IoDevice>> = vec![Box::new(DummyIODevice)];
         Z80 {
             a: 0,
             f: 0,
@@ -61,11 +66,18 @@ impl Z80 {
             iff1: false,
             iff2: false,
             im: 0,
+            interrupt_request: false,
             memory,
+            io_devices,
             halted: false,
             max_cycles: None,
             cycles: 0,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn request_interrupt(&mut self) {
+        self.interrupt_request = true;
     }
 
     pub fn execute_cycle(&mut self) {
@@ -74,11 +86,19 @@ impl Z80 {
             return;
         }
 
-        // Check if we reached max_length
-        if let Some(max_length) = self.max_cycles {
-            if self.cycles >= max_length {
-                panic!("Reached max_length");
+        // Check if we reached max_cycles
+        if let Some(max_cycles) = self.max_cycles {
+            if self.cycles >= max_cycles {
+                panic!("Reached {} cycles", max_cycles);
             }
+        }
+
+        if self.interrupt_request && self.iff1 {
+            self.interrupt_request = false;
+            self.iff1 = false;
+            self.push(self.pc);
+            self.pc = 0x0038; // Jump to interrupt service routine at address 0x0038
+            return;
         }
 
         // Fetch and decode the next instruction
@@ -101,43 +121,50 @@ impl Z80 {
                 // LD A, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_a_n(value);
+                trace!("LD A, 0x{:02X}", value);
+                self.a = value;
             }
             0x06 => {
                 // LD B, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_b_n(value);
+                trace!("LD B, 0x{:02X}", value);
+                self.b = value;
             }
             0x0E => {
                 // LD C, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_c_n(value);
+                trace!("LD C, 0x{:02X}", value);
+                self.c = value;
             }
             0x16 => {
                 // LD D, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_d_n(value);
+                trace!("LD D, 0x{:02X}", value);
+                self.d = value;
             }
             0x1E => {
                 // LD E, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_e_n(value);
+                trace!("LD E, 0x{:02X}", value);
+                self.e = value;
             }
             0x26 => {
                 // LD H, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_h_n(value);
+                trace!("LD H, 0x{:02X}", value);
+                self.h = value;
             }
             0x2E => {
                 // LD L, n
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.pc);
-                self.ld_l_n(value);
+                trace!("LD L, 0x{:02X}", value);
+                self.l = value;
             }
             0x78 => {
                 // LD A, B
@@ -436,8 +463,10 @@ impl Z80 {
             }
             0x3C => {
                 // INC A
+                trace!("INC A");
                 self.pc = self.pc.wrapping_add(1);
                 self.a = self.a.wrapping_add(1);
+                inc_pc = false;
             }
             0x04 => {
                 // INC B
@@ -994,6 +1023,121 @@ impl Z80 {
                 self.set_af(value);
                 inc_pc = false;
             }
+            0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA => {
+                // JP cc, nn
+                inc_pc = false;
+                let condition = match opcode {
+                    0xC2 => !self.check_flag(Flag::Z), // JP NZ, nn
+                    0xCA => self.check_flag(Flag::Z),  // JP Z, nn
+                    0xD2 => !self.check_flag(Flag::C), // JP NC, nn
+                    0xDA => self.check_flag(Flag::C),  // JP C, nn
+                    0xC3 => true,                      // JP nn (unconditional)
+                    _ => unreachable!(),
+                };
+
+                let address = self.read_word(self.pc.wrapping_add(1));
+                trace!("JP cc, 0x{:04X} = {}", address, condition);
+
+                self.pc = self.pc.wrapping_add(3);
+
+                if condition {
+                    self.pc = address;
+                }
+            }
+            0x20 | 0x28 | 0x30 | 0x38 => {
+                // JR cc, n
+                let condition = match opcode {
+                    0x20 => !self.check_flag(Flag::Z), // JR NZ, n
+                    0x28 => self.check_flag(Flag::Z),  // JR Z, n
+                    0x30 => !self.check_flag(Flag::C), // JR NC, n
+                    0x38 => self.check_flag(Flag::C),  // JR C, n
+                    _ => unreachable!(),
+                };
+
+                let offset = self.read_byte(self.pc.wrapping_add(1)) as i8;
+                self.pc = self.pc.wrapping_add(2);
+
+                if condition {
+                    self.pc = (self.pc as i16 + offset as i16) as u16;
+                }
+            }
+            0xCB => {
+                // Read extended opcode and execute it
+                let extended_opcode = self.read_byte(self.pc.wrapping_add(1));
+                inc_pc = false;
+
+                match extended_opcode {
+                    0x40..=0x7F => {
+                        // BIT b, r
+                        let bit = (extended_opcode >> 3) & 0x07;
+                        let reg_index = extended_opcode & 0x07;
+
+                        trace!("BIT {}, {}", bit, reg_index);
+                        let value = self.get_register_by_index(reg_index);
+                        let mask = 1 << bit;
+
+                        self.set_flag(Flag::Z, value & mask == 0);
+                        self.set_flag(Flag::H, true);
+                        self.set_flag(Flag::N, false);
+
+                        self.pc = self.pc.wrapping_add(2);
+                    }
+                    0x80..=0xBF => {
+                        // RES b, r
+                        let bit = (extended_opcode >> 3) & 0x07;
+                        let reg_index = extended_opcode & 0x07;
+
+                        trace!("RES {}, {}", bit, reg_index);
+                        let value = self.get_register_by_index(reg_index);
+                        let mask = !(1 << bit);
+
+                        self.set_register_by_index(reg_index, value & mask);
+                        self.pc = self.pc.wrapping_add(2);
+                    }
+                    0xC0..=0xFF => {
+                        // SET b, r
+                        let bit = (extended_opcode >> 3) & 0x07;
+                        let reg_index = extended_opcode & 0x07;
+
+                        trace!("SET {}, {}", bit, reg_index);
+                        let value = self.get_register_by_index(reg_index);
+                        let mask = 1 << bit;
+
+                        self.set_register_by_index(reg_index, value | mask);
+                        self.pc = self.pc.wrapping_add(2);
+                    }
+
+                    _ => {
+                        // Handle other extended opcodes
+                    }
+                }
+            }
+
+            // I/O
+            0xDB => {
+                // IN A, (n)
+                self.pc = self.pc.wrapping_add(1);
+                let port = self.read_byte(self.pc);
+                self.a = self.io_devices[port as usize].read(port as u16);
+            }
+            0xD3 => {
+                // OUT (n), A
+                self.pc = self.pc.wrapping_add(1);
+                let port = self.read_byte(self.pc);
+                self.io_devices[port as usize].write(port as u16, self.a);
+            }
+
+            // Interrupts
+            // EI
+            0xFB => {
+                self.pc = self.pc.wrapping_add(1);
+                self.iff1 = true;
+            }
+            // DI
+            0xF3 => {
+                self.pc = self.pc.wrapping_add(1);
+                self.iff1 = false;
+            }
 
             _ => panic!("Unhandled opcode: {:02X}", opcode),
         }
@@ -1016,6 +1160,10 @@ impl Z80 {
         self.f & (flag as u8) != 0
     }
 
+    pub fn check_flag(&self, flag: Flag) -> bool {
+        self.get_flag(flag)
+    }
+
     fn read_byte(&self, address: u16) -> u8 {
         self.memory.read_byte(address)
     }
@@ -1024,42 +1172,40 @@ impl Z80 {
         self.memory.read_word(address)
     }
 
+    fn get_register_by_index(&mut self, index: u8) -> u8 {
+        match index {
+            0 => self.b,
+            1 => self.c,
+            2 => self.d,
+            3 => self.e,
+            4 => self.h,
+            5 => self.l,
+            6 => self.read_byte(self.get_hl()), // (HL)
+            7 => self.a,
+            _ => panic!("Invalid register index: {}", index),
+        }
+    }
+
+    fn set_register_by_index(&mut self, index: u8, value: u8) {
+        match index {
+            0 => self.b = value,
+            1 => self.c = value,
+            2 => self.d = value,
+            3 => self.e = value,
+            4 => self.h = value,
+            5 => self.l = value,
+            6 => self.memory.write_byte(self.get_hl(), value), // (HL)
+            7 => self.a = value,
+            _ => panic!("Invalid register index: {}", index),
+        }
+    }
+
     fn nop(&mut self) {
         // NOP does nothing, so this function is empty
     }
 
-    fn ld_a_n(&mut self, value: u8) {
-        trace!("LD A, {}", value);
-        self.a = value;
-    }
-
     fn ld_a_nn(&mut self, address: u16) {
         self.a = self.memory.read_byte(address);
-    }
-
-    fn ld_b_n(&mut self, value: u8) {
-        trace!("LD B, {}", value);
-        self.b = value;
-    }
-
-    fn ld_c_n(&mut self, value: u8) {
-        self.c = value;
-    }
-
-    fn ld_d_n(&mut self, value: u8) {
-        self.d = value;
-    }
-
-    fn ld_e_n(&mut self, value: u8) {
-        self.e = value;
-    }
-
-    fn ld_h_n(&mut self, value: u8) {
-        self.h = value;
-    }
-
-    fn ld_l_n(&mut self, value: u8) {
-        self.l = value;
     }
 
     fn get_af(&self) -> u16 {

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub struct AY38910 {
     // Add sound chip registers and internal state here
 }
