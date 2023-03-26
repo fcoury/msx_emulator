@@ -15,11 +15,18 @@ fn main() {
     // let mut sound_chip = AY38910::new();
     // let mut input = Input::new();
 
+    // gets the rom path from args
+    let rom_path = std::env::args().nth(1).expect("No rom path provided");
+    let max_cycles = std::env::args()
+        .nth(2)
+        .map(|length| length.parse().unwrap());
+
     let load_address = 0x0000; // Change this value based on your desired load address
-    load_binary(&mut memory, "fixtures/z80/simple/main.bin", load_address)
-        .expect("Failed to load the binary");
+    load_binary(&mut memory, &rom_path, load_address).expect("Failed to load the binary");
 
     let mut cpu = Z80::new(memory);
+    cpu.max_cycles = max_cycles;
+    println!("max_cycles: {:?}", cpu.max_cycles);
 
     loop {
         // Main emulator loop
@@ -44,7 +51,8 @@ fn load_binary(memory: &mut Memory, path: &str, load_address: u16) -> std::io::R
     file.read_to_end(&mut buffer)?;
 
     for (i, byte) in buffer.iter().enumerate() {
-        memory.write_byte(load_address.wrapping_add(i as u16), *byte);
+        let address = load_address.wrapping_add(i as u16);
+        memory.write_byte(address, *byte);
     }
 
     Ok(())

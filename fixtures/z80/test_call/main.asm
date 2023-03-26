@@ -1,0 +1,7 @@
+org 0x0000
+
+CALL 0x0010 ; CD 10 00
+
+HALT ; 76
+
+RET ; C9

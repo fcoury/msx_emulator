@@ -39,6 +39,10 @@ pub struct Z80 {
 
     // Memory
     memory: Memory,
+
+    // Debug options
+    pub max_cycles: Option<u64>,
+    cycles: u64,
 }
 
 impl Z80 {
@@ -52,31 +56,43 @@ impl Z80 {
             e: 0,
             h: 0,
             l: 0,
-            sp: 0,
+            sp: 0xF000,
             pc: 0,
             iff1: false,
             iff2: false,
             im: 0,
             memory,
             halted: false,
+            max_cycles: None,
+            cycles: 0,
         }
     }
 
     pub fn execute_cycle(&mut self) {
+        self.cycles += 1;
         if self.halted {
             return;
+        }
+
+        // Check if we reached max_length
+        if let Some(max_length) = self.max_cycles {
+            if self.cycles >= max_length {
+                panic!("Reached max_length");
+            }
         }
 
         // Fetch and decode the next instruction
         let opcode = self.memory.read_byte(self.pc);
         info!("PC: 0x{:04X} Opcode: 0x{:02X}", self.pc, opcode);
-        trace!(
-            "A: 0x{:02X} B: 0x{:02X} C: 0x{:02X} F: 0b{:b}",
-            self.a,
-            self.b,
-            self.c,
-            self.f
-        );
+        // trace!(
+        //     "A: 0x{:02X} B: 0x{:02X} C: 0x{:02X} F: 0b{:b}",
+        //     self.a,
+        //     self.b,
+        //     self.c,
+        //     self.f
+        // );
+
+        let mut inc_pc = true;
 
         // Execute the instruction
         match opcode {
@@ -391,6 +407,33 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
                 self.ld_a_hl();
             }
+            0x11 => {
+                // LD DE, nn
+                self.pc = self.pc.wrapping_add(1);
+                let nn = self.read_word(self.pc);
+                self.pc = self.pc.wrapping_add(1);
+                trace!("LD DE, 0x{:04X}", nn);
+                self.set_de(nn);
+            }
+            0x12 => {
+                // LD DE, A
+                trace!("LD DE, A");
+                self.ld_de_a();
+            }
+            0x10 => {
+                // DJNZ n
+                self.pc = self.pc.wrapping_add(1);
+                let offset = self.read_byte(self.pc) as i8;
+
+                self.b = self.b.wrapping_sub(1);
+
+                if self.b != 0 {
+                    self.pc = self.pc.wrapping_add(1);
+                    self.pc = self.pc.wrapping_add(offset as u16);
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                }
+            }
             0x3C => {
                 // INC A
                 self.pc = self.pc.wrapping_add(1);
@@ -473,6 +516,7 @@ impl Z80 {
             }
             0x87 => {
                 // ADD A, A
+                info!("ADD A, A");
                 self.pc = self.pc.wrapping_add(1);
                 let result = self.a.wrapping_add(self.a);
                 self.a = result;
@@ -880,14 +924,84 @@ impl Z80 {
             }
             0x76 => {
                 // HALT
+                trace!("HALT");
                 self.pc = self.pc.wrapping_add(1);
                 self.halted = true;
             }
+            0xCD => {
+                // CALL nn
+                self.pc = self.pc.wrapping_add(1);
+                let address = self.read_word(self.pc);
+                self.call(address);
+                inc_pc = false;
+            }
+            0xC9 => {
+                // RET
+                self.ret();
+                inc_pc = false;
+            }
+            0xC5 => {
+                // PUSH BC
+                trace!("PUSH BC");
+                self.pc = self.pc.wrapping_add(1);
+                self.push(self.get_bc());
+            }
+            0xD5 => {
+                // PUSH DE
+                trace!("PUSH DE");
+                self.pc = self.pc.wrapping_add(1);
+                self.push(self.get_de());
+            }
+            0xE5 => {
+                // PUSH HL
+                trace!("PUSH HL");
+                self.pc = self.pc.wrapping_add(1);
+                self.push(self.get_hl());
+            }
+            0xF5 => {
+                // PUSH AF
+                trace!("PUSH AF");
+                self.pc = self.pc.wrapping_add(1);
+                self.push(self.get_af());
+                inc_pc = false;
+            }
+
+            0xC1 => {
+                // POP BC
+                trace!("POP BC");
+                self.pc = self.pc.wrapping_add(1);
+                let value = self.pop();
+                self.set_bc(value);
+                inc_pc = false;
+            }
+            0xD1 => {
+                // POP DE
+                self.pc = self.pc.wrapping_add(1);
+                let value = self.pop();
+                self.set_de(value);
+            }
+            0xE1 => {
+                // POP HL
+                self.pc = self.pc.wrapping_add(1);
+                let value = self.pop();
+                self.set_hl(value);
+            }
+            0xF1 => {
+                // POP AF
+                trace!("POP AF");
+                self.pc = self.pc.wrapping_add(1);
+                let value = self.pop();
+                self.set_af(value);
+                inc_pc = false;
+            }
+
             _ => panic!("Unhandled opcode: {:02X}", opcode),
         }
 
         // Increment the program counter
-        self.pc = self.pc.wrapping_add(1);
+        if inc_pc {
+            self.pc = self.pc.wrapping_add(1);
+        }
     }
 
     pub fn set_flag(&mut self, flag: Flag, value: bool) {
@@ -902,10 +1016,12 @@ impl Z80 {
         self.f & (flag as u8) != 0
     }
 
+    fn read_byte(&self, address: u16) -> u8 {
+        self.memory.read_byte(address)
+    }
+
     fn read_word(&self, address: u16) -> u16 {
-        let lower = self.memory.read_byte(address) as u16;
-        let upper = self.memory.read_byte(address.wrapping_add(1)) as u16;
-        (upper << 8) | lower
+        self.memory.read_word(address)
     }
 
     fn nop(&mut self) {
@@ -913,6 +1029,7 @@ impl Z80 {
     }
 
     fn ld_a_n(&mut self, value: u8) {
+        trace!("LD A, {}", value);
         self.a = value;
     }
 
@@ -921,6 +1038,7 @@ impl Z80 {
     }
 
     fn ld_b_n(&mut self, value: u8) {
+        trace!("LD B, {}", value);
         self.b = value;
     }
 
@@ -944,8 +1062,8 @@ impl Z80 {
         self.l = value;
     }
 
-    fn get_hl(&self) -> u16 {
-        (self.h as u16) << 8 | self.l as u16
+    fn get_af(&self) -> u16 {
+        u16::from(self.a) << 8 | u16::from(self.f)
     }
 
     fn get_bc(&self) -> u16 {
@@ -954,6 +1072,30 @@ impl Z80 {
 
     fn get_de(&self) -> u16 {
         (self.d as u16) << 8 | self.e as u16
+    }
+
+    fn get_hl(&self) -> u16 {
+        (self.h as u16) << 8 | self.l as u16
+    }
+
+    fn set_af(&mut self, value: u16) {
+        self.a = (value >> 8) as u8;
+        self.f = (value & 0xFF) as u8;
+    }
+
+    fn set_bc(&mut self, value: u16) {
+        self.b = (value >> 8) as u8;
+        self.c = (value & 0xFF) as u8;
+    }
+
+    fn set_de(&mut self, value: u16) {
+        self.d = (value >> 8) as u8;
+        self.e = (value & 0xFF) as u8;
+    }
+
+    fn set_hl(&mut self, value: u16) {
+        self.h = (value >> 8) as u8;
+        self.l = (value & 0xFF) as u8;
     }
 
     fn ld_a_bc(&mut self) {
@@ -1006,6 +1148,11 @@ impl Z80 {
         self.memory.write_byte(address, self.h);
     }
 
+    fn ld_de_a(&mut self) {
+        let address = self.get_de();
+        self.memory.write_byte(address, self.a);
+    }
+
     fn inc_hl(&mut self) {
         let address = self.get_hl();
         let value = self.memory.read_byte(address);
@@ -1016,6 +1163,33 @@ impl Z80 {
         let address = self.get_hl();
         let value = self.memory.read_byte(address);
         self.memory.write_byte(address, value.wrapping_sub(1));
+    }
+
+    // Stack operations
+    fn push(&mut self, value: u16) {
+        trace!("[->SP] 0x{:04X} into sp=0x{:04X}", value, self.sp);
+        self.sp = self.sp.wrapping_sub(2);
+        self.memory.write_word(self.sp, value);
+    }
+
+    fn pop(&mut self) -> u16 {
+        let value = self.memory.read_word(self.sp);
+        trace!("[<-SP] 0x{:04X} from sp=0x{:04X}", value, self.sp);
+        self.sp = self.sp.wrapping_add(2);
+        value
+    }
+
+    // CALL and RET
+    fn call(&mut self, address: u16) {
+        let value = self.pc.wrapping_add(2);
+        trace!("CALL 0x{:04X} value=0x{:04X}", address, value);
+        self.push(value);
+        self.pc = address;
+    }
+
+    fn ret(&mut self) {
+        trace!("RET");
+        self.pc = self.pop();
     }
 }
 
