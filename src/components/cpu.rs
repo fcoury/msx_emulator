@@ -1,3 +1,5 @@
+use log::{info, trace};
+
 use super::memory::Memory;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -32,6 +34,9 @@ pub struct Z80 {
     // Interrupt mode
     pub im: u8,
 
+    // Halted?
+    pub halted: bool,
+
     // Memory
     memory: Memory,
 }
@@ -53,12 +58,25 @@ impl Z80 {
             iff2: false,
             im: 0,
             memory,
+            halted: false,
         }
     }
 
     pub fn execute_cycle(&mut self) {
+        if self.halted {
+            return;
+        }
+
         // Fetch and decode the next instruction
         let opcode = self.memory.read_byte(self.pc);
+        info!("PC: 0x{:04X} Opcode: 0x{:02X}", self.pc, opcode);
+        trace!(
+            "A: 0x{:02X} B: 0x{:02X} C: 0x{:02X} F: 0b{:b}",
+            self.a,
+            self.b,
+            self.c,
+            self.f
+        );
 
         // Execute the instruction
         match opcode {
@@ -461,6 +479,7 @@ impl Z80 {
             }
             0x80 => {
                 // ADD A, B
+                info!("ADD A, B");
                 self.pc = self.pc.wrapping_add(1);
                 let result = self.a.wrapping_add(self.b);
                 self.a = result;
@@ -795,8 +814,14 @@ impl Z80 {
             0xAF => {
                 // XOR A
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.a;
-                self.a = result;
+                self.a = 0;
+
+                self.set_flag(Flag::Z, true);
+                self.set_flag(Flag::S, false);
+                self.set_flag(Flag::H, false);
+                self.set_flag(Flag::P, parity(self.a));
+                self.set_flag(Flag::N, false);
+                self.set_flag(Flag::C, false);
             }
             0xA8 => {
                 // XOR B
@@ -846,6 +871,17 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(2);
                 let result = self.a ^ value;
                 self.a = result;
+            }
+            0x18 => {
+                // JR e
+                self.pc = self.pc.wrapping_add(1);
+                let offset = self.memory.read_byte(self.pc.wrapping_add(1)) as i8;
+                self.pc = self.pc.wrapping_add(offset as u16);
+            }
+            0x76 => {
+                // HALT
+                self.pc = self.pc.wrapping_add(1);
+                self.halted = true;
             }
             _ => panic!("Unhandled opcode: {:02X}", opcode),
         }
@@ -909,18 +945,15 @@ impl Z80 {
     }
 
     fn get_hl(&self) -> u16 {
-        let address = (self.h as u16) << 8 | self.l as u16;
-        address
+        (self.h as u16) << 8 | self.l as u16
     }
 
     fn get_bc(&self) -> u16 {
-        let address = (self.b as u16) << 8 | self.c as u16;
-        address
+        (self.b as u16) << 8 | self.c as u16
     }
 
     fn get_de(&self) -> u16 {
-        let address = (self.d as u16) << 8 | self.e as u16;
-        address
+        (self.d as u16) << 8 | self.e as u16
     }
 
     fn ld_a_bc(&mut self) {
