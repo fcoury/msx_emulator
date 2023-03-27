@@ -811,118 +811,116 @@ impl Z80 {
             }
             0x9F => {
                 // SBC A, A
+                trace!("SBC A, A");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.a);
-                self.a = result;
+                self.sbc_a(self.a);
             }
             0x98 => {
                 // SBC A, B
+                trace!("SBC A, B");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.b);
-                self.a = result;
+                self.sbc_a(self.b);
             }
             0x99 => {
                 // SBC A, C
+                trace!("SBC A, C");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.c);
-                self.a = result;
+                self.sbc_a(self.c);
             }
             0x9A => {
                 // SBC A, D
+                trace!("SBC A, D");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.d);
-                self.a = result;
+                self.sbc_a(self.d);
             }
             0x9B => {
                 // SBC A, E
+                trace!("SBC A, E");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.e);
-                self.a = result;
+                self.sbc_a(self.e);
             }
             0x9C => {
                 // SBC A, H
+                trace!("SBC A, H");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.h);
-                self.a = result;
+                self.sbc_a(self.h);
             }
             0x9D => {
                 // SBC A, L
+                trace!("SBC A, L");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.l);
-                self.a = result;
+                self.sbc_a(self.l);
             }
             0x9E => {
                 // SBC A, (HL)
+                trace!("SBC A, (HL)");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.memory.read_byte(self.get_hl()));
-                self.a = result;
+                let value = self.memory.read_byte(self.get_hl());
+                self.sbc_a(value);
             }
             0xDE => {
                 // SBC A, n
+                trace!("SBC A, n");
                 let value = self.memory.read_byte(self.pc.wrapping_add(1));
                 self.pc = self.pc.wrapping_add(2);
-                let result = self.a.wrapping_sub(value);
-                self.a = result;
+                self.sbc_a(value);
             }
             0xA7 => {
                 // AND A
-                self.pc = self.pc.wrapping_add(1);
-
-                self.set_flag(Flag::Z, self.a == 0);
-                self.set_flag(Flag::S, self.a & 0x80 != 0);
-                self.set_flag(Flag::H, true);
-                self.set_flag(Flag::P, parity(self.a));
-                self.set_flag(Flag::N, false);
-                self.set_flag(Flag::C, false);
-            }
-            0xA0 => {
-                // AND B
+                trace!("AND A");
                 self.pc = self.pc.wrapping_add(1);
                 let result = self.a & self.b;
                 self.a = result;
             }
+            0xA0 => {
+                // AND B
+                trace!("AND B");
+                self.pc = self.pc.wrapping_add(1);
+                self.and_a(self.b);
+            }
             0xA1 => {
                 // AND C
+                trace!("AND C");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.c;
-                self.a = result;
+                self.and_a(self.c);
             }
             0xA2 => {
                 // AND D
+                trace!("AND D");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.d;
-                self.a = result;
+                self.and_a(self.d);
             }
             0xA3 => {
                 // AND E
+                trace!("AND E");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.e;
-                self.a = result;
+                self.and_a(self.e);
             }
             0xA4 => {
                 // AND H
+                trace!("AND H");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.h;
-                self.a = result;
+                self.and_a(self.h);
             }
             0xA5 => {
                 // AND L
+                trace!("AND L");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.l;
-                self.a = result;
+                self.and_a(self.l);
             }
             0xA6 => {
                 // AND (HL)
+                trace!("AND (HL)");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.memory.read_byte(self.get_hl());
-                self.a = result;
+                let value = self.memory.read_byte(self.get_hl());
+                self.and_a(value);
             }
             0xE6 => {
                 // AND n
+                trace!("AND n");
                 let value = self.memory.read_byte(self.pc.wrapping_add(1));
                 self.pc = self.pc.wrapping_add(2);
-                let result = self.a & value;
-                self.a = result;
+                self.and_a(value);
             }
             0xB7 => {
                 // OR A
@@ -1424,6 +1422,31 @@ impl Z80 {
         self.set_flag(Flag::C, a < value);
 
         self.a = result;
+    }
+
+    fn sbc_a(&mut self, value: u8) {
+        let carry = if self.get_flag(Flag::C) { 1 } else { 0 };
+        let result = self.a.wrapping_sub(value).wrapping_sub(carry);
+
+        self.set_flag(Flag::Z, result == 0);
+        self.set_flag(Flag::S, result & 0x80 != 0);
+        self.set_flag(Flag::H, (self.a & 0x0F) < (value & 0x0F) + carry);
+        self.set_flag(Flag::P, (self.a as i8) >= 0 && ((result as i8) < 0));
+        self.set_flag(Flag::N, true);
+        self.set_flag(Flag::C, self.a < value + carry);
+
+        self.a = result;
+    }
+
+    fn and_a(&mut self, value: u8) {
+        self.a &= value;
+
+        self.set_flag(Flag::Z, self.a == 0);
+        self.set_flag(Flag::S, self.a & 0x80 != 0);
+        self.set_flag(Flag::H, true);
+        self.set_flag(Flag::P, parity(self.a));
+        self.set_flag(Flag::N, false);
+        self.set_flag(Flag::C, false);
     }
 
     // Helper function to set flags for INC
