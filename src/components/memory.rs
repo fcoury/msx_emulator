@@ -10,12 +10,55 @@ impl Memory {
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
-        self.data[address as usize]
+        match address {
+            0x0000..=0x3FFF => self.data[address as usize],
+            0x4000..=0x7FFF => self.data[address as usize],
+            0x8000..=0xBFFF => self.data[address as usize],
+            0xC000..=0xDFFF => self.data[address as usize],
+            0xE000..=0xFFFF => {
+                // Implement I/O read behavior here
+                0xFF // Return a default value for now
+            }
+        }
     }
 
     pub fn write_byte(&mut self, address: u16, value: u8) {
-        self.data[address as usize] = value;
+        match address {
+            0x0000..=0x3FFF => {
+                // Writing to BIOS is typically not allowed
+                panic!("Writing to BIOS is not allowed")
+            }
+            0x4000..=0x7FFF => {
+                // Writing to BASIC is typically not allowed
+                panic!("Writing to BASIC is not allowed")
+            }
+            0x8000..=0xBFFF => {
+                panic!("Writing to VRAM is not allowed")
+            }
+            0xC000..=0xDFFF => self.data[address as usize] = value,
+            0xE000..=0xFFFF => {
+                // Implement I/O write behavior here
+            }
+        }
     }
+
+    pub fn load_bios(&mut self, buffer: &[u8]) -> std::io::Result<()> {
+        let load_address: u16 = 0x0000;
+        for (i, byte) in buffer.iter().enumerate() {
+            let address = load_address.wrapping_add(i as u16);
+            self.data[address as usize] = *byte;
+        }
+
+        Ok(())
+    }
+
+    // pub fn read_byte(&self, address: u16) -> u8 {
+    //     self.data[address as usize]
+    // }
+
+    // pub fn write_byte(&mut self, address: u16, value: u8) {
+    //     self.data[address as usize] = value;
+    // }
 
     pub fn write_word(&mut self, address: u16, value: u16) {
         let low_byte = (value & 0x00FF) as u8;

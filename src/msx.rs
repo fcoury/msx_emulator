@@ -55,12 +55,7 @@ impl Msx {
         let mut file = File::open(path)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-
-        let load_address: u16 = 0x0000;
-        for (i, byte) in buffer.iter().enumerate() {
-            let address = load_address.wrapping_add(i as u16);
-            self.cpu.memory.write_byte(address, *byte);
-        }
+        self.cpu.memory.load_bios(&buffer)?;
 
         Ok(())
     }
