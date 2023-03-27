@@ -466,6 +466,12 @@ impl Z80 {
                 self.set_hl(value);
                 self.pc = self.pc.wrapping_add(3);
             }
+            0xF9 => {
+                // LD SP, HL
+                trace!("LD SP, HL");
+                self.pc = self.pc.wrapping_add(1);
+                self.sp = self.get_hl();
+            }
             0x0A => {
                 // LD A, (BC)
                 self.pc = self.pc.wrapping_add(1);
@@ -532,37 +538,43 @@ impl Z80 {
                 trace!("INC A");
                 self.pc = self.pc.wrapping_add(1);
                 self.a = self.a.wrapping_add(1);
-                inc_pc = false;
+                self.set_inc_flags(self.a);
             }
             0x04 => {
                 // INC B
                 self.pc = self.pc.wrapping_add(1);
                 self.b = self.b.wrapping_add(1);
+                self.set_inc_flags(self.b);
             }
             0x0C => {
                 // INC C
                 self.pc = self.pc.wrapping_add(1);
                 self.c = self.c.wrapping_add(1);
+                self.set_inc_flags(self.c);
             }
             0x14 => {
                 // INC D
                 self.pc = self.pc.wrapping_add(1);
                 self.d = self.d.wrapping_add(1);
+                self.set_inc_flags(self.d);
             }
             0x1C => {
                 // INC E
                 self.pc = self.pc.wrapping_add(1);
                 self.e = self.e.wrapping_add(1);
+                self.set_inc_flags(self.e);
             }
             0x24 => {
                 // INC H
                 self.pc = self.pc.wrapping_add(1);
                 self.h = self.h.wrapping_add(1);
+                self.set_inc_flags(self.h);
             }
             0x2C => {
                 // INC L
                 self.pc = self.pc.wrapping_add(1);
                 self.l = self.l.wrapping_add(1);
+                self.set_inc_flags(self.l);
             }
             0x34 => {
                 // INC (HL)
@@ -573,37 +585,44 @@ impl Z80 {
                 // DEC A
                 self.pc = self.pc.wrapping_add(1);
                 self.a = self.a.wrapping_sub(1);
+                self.set_dec_flags(self.a);
             }
             0x05 => {
                 // DEC B
                 self.pc = self.pc.wrapping_add(1);
                 self.b = self.b.wrapping_sub(1);
+                self.set_dec_flags(self.b);
             }
             0x0D => {
                 // DEC C
                 self.pc = self.pc.wrapping_add(1);
                 self.c = self.c.wrapping_sub(1);
+                self.set_dec_flags(self.c);
             }
             0x15 => {
                 // DEC D
                 self.pc = self.pc.wrapping_add(1);
                 self.d = self.d.wrapping_sub(1);
+                self.set_dec_flags(self.d);
             }
             0x1D => {
                 // DEC E
                 self.pc = self.pc.wrapping_add(1);
                 self.e = self.e.wrapping_sub(1);
+                self.set_dec_flags(self.e);
             }
             0x25 => {
                 // DEC H
                 trace!("DEC H");
                 self.pc = self.pc.wrapping_add(1);
                 self.h = self.h.wrapping_sub(1);
+                self.set_dec_flags(self.h);
             }
             0x2D => {
                 // DEC L
                 self.pc = self.pc.wrapping_add(1);
                 self.l = self.l.wrapping_sub(1);
+                self.set_dec_flags(self.l);
             }
             0x35 => {
                 // DEC (HL)
@@ -663,53 +682,68 @@ impl Z80 {
                 self.add_a(immediate_value);
                 self.pc = self.pc.wrapping_add(2);
             }
+            0x39 => {
+                // ADD HL, SP
+                trace!("ADD HL, SP");
+                let hl = self.get_hl();
+                let result = hl.wrapping_add(self.sp);
+
+                self.set_flag(Flag::N, false);
+                self.set_flag(Flag::H, (hl & 0x0FFF) + (self.sp & 0x0FFF) > 0x0FFF);
+                self.set_flag(Flag::C, result < hl);
+
+                self.set_hl(result);
+                self.pc = self.pc.wrapping_add(1);
+            }
             0x8F => {
                 // ADC A, A
+                trace!("ADC A, A");
+                self.adc_a(self.a);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.a);
-                self.a = result;
             }
             0x88 => {
                 // ADC A, B
+                trace!("ADC A, B");
+                self.adc_a(self.a);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.b);
-                self.a = result;
             }
             0x89 => {
                 // ADC A, C
+                trace!("ADC A, C");
+                self.adc_a(self.c);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.c);
-                self.a = result;
             }
             0x8A => {
                 // ADC A, D
+                trace!("ADC A, D");
+                self.adc_a(self.d);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.d);
-                self.a = result;
             }
             0x8B => {
                 // ADC A, E
+                trace!("ADC A, E");
+                self.adc_a(self.e);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.e);
-                self.a = result;
             }
             0x8C => {
                 // ADC A, H
+                trace!("ADC A, H");
+                self.adc_a(self.h);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.h);
-                self.a = result;
             }
             0x8D => {
                 // ADC A, L
+                trace!("ADC A, L");
+                self.adc_a(self.l);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.l);
-                self.a = result;
             }
             0x8E => {
                 // ADC A, (HL)
+                trace!("ADC A, (HL)");
+                let hl_address = self.get_hl();
+                let value = self.read_byte(hl_address);
+                self.adc_a(value);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_add(self.memory.read_byte(self.get_hl()));
-                self.a = result;
             }
             0xCE => {
                 // ADC A, n
@@ -720,51 +754,53 @@ impl Z80 {
             }
             0x97 => {
                 // SUB A
+                trace!("SUB A");
+                self.sub_a(self.a);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.a);
-                self.a = result;
             }
             0x90 => {
                 // SUB B
+                trace!("SUB B");
+                self.sub_a(self.b);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.b);
-                self.a = result;
             }
             0x91 => {
                 // SUB C
+                trace!("SUB C");
+                self.sub_a(self.c);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.c);
-                self.a = result;
             }
             0x92 => {
                 // SUB D
+                trace!("SUB D");
+                self.sub_a(self.d);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.d);
-                self.a = result;
             }
             0x93 => {
                 // SUB E
+                trace!("SUB E");
+                self.sub_a(self.e);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.e);
-                self.a = result;
             }
             0x94 => {
                 // SUB H
+                trace!("SUB H");
+                self.sub_a(self.h);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.h);
-                self.a = result;
             }
             0x95 => {
-                // SUB L
+                // SUB H
+                trace!("SUB H");
+                self.sub_a(self.h);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.l);
-                self.a = result;
             }
             0x96 => {
                 // SUB (HL)
+                trace!("SUB (HL)");
+                let hl_address = self.get_hl();
+                let value = self.read_byte(hl_address);
+                self.sub_a(value);
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a.wrapping_sub(self.memory.read_byte(self.get_hl()));
-                self.a = result;
             }
             0xD6 => {
                 // SUB n
@@ -897,6 +933,17 @@ impl Z80 {
                 self.set_flag(Flag::P, parity(self.a));
                 self.set_flag(Flag::N, false);
                 self.set_flag(Flag::C, false);
+            }
+            0x07 => {
+                // RLCA
+                trace!("RLCA");
+                let msb = self.a & 0x80;
+                let carry = msb != 0;
+
+                self.a = (self.a << 1) | (msb >> 7);
+                self.set_flag(Flag::C, carry);
+
+                self.pc = self.pc.wrapping_add(1);
             }
             0xB0 => {
                 // OR B
@@ -1052,6 +1099,34 @@ impl Z80 {
                 let hl_value = self.memory.read_byte(self.get_hl());
                 trace!("CP (HL) [0x{:04X}]", self.get_hl());
                 self.compare(self.a, hl_value);
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0x3F => {
+                // CCF
+                trace!("CCF");
+                let carry = self.get_flag(Flag::C);
+                self.set_flag(Flag::N, false);
+                self.set_flag(Flag::H, false);
+                self.set_flag(Flag::C, !carry);
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0x37 => {
+                // SCF
+                trace!("SCF");
+                self.set_flag(Flag::N, false);
+                self.set_flag(Flag::H, false);
+                self.set_flag(Flag::C, true);
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0xEB => {
+                // EX DE, HL
+                let de = self.get_de();
+                let hl = self.get_hl();
+
+                self.set_de(hl);
+                self.set_hl(de);
+
+                // Increment program counter
                 self.pc = self.pc.wrapping_add(1);
             }
             0xD9 => {
@@ -1326,6 +1401,45 @@ impl Z80 {
         self.a = result;
     }
 
+    fn adc_a(&mut self, value: u8) {
+        let a = self.a;
+        let carry = if self.get_flag(Flag::C) { 1 } else { 0 };
+        let result = a.wrapping_add(value).wrapping_add(carry);
+
+        self.set_flag(Flag::Z, result == 0);
+        self.set_flag(Flag::N, false);
+        self.set_flag(Flag::H, (a & 0x0F) + (value & 0x0F) + carry > 0x0F);
+        self.set_flag(Flag::C, a > 0xFF - value - carry);
+
+        self.a = result;
+    }
+
+    fn sub_a(&mut self, value: u8) {
+        let a = self.a;
+        let result = a.wrapping_sub(value);
+
+        self.set_flag(Flag::Z, result == 0);
+        self.set_flag(Flag::N, true);
+        self.set_flag(Flag::H, (a & 0x0F) < (value & 0x0F));
+        self.set_flag(Flag::C, a < value);
+
+        self.a = result;
+    }
+
+    // Helper function to set flags for INC
+    fn set_inc_flags(&mut self, value: u8) {
+        self.set_flag(Flag::Z, value == 0);
+        self.set_flag(Flag::N, false);
+        self.set_flag(Flag::H, (value & 0x0F) == 0x00);
+    }
+
+    // Helper function to set flags for DEC
+    fn set_dec_flags(&mut self, value: u8) {
+        self.set_flag(Flag::Z, value == 0);
+        self.set_flag(Flag::N, true);
+        self.set_flag(Flag::H, (value & 0x0F) == 0x0F);
+    }
+
     pub fn set_flag(&mut self, flag: Flag, value: bool) {
         if value {
             self.f |= flag as u8;
@@ -1475,15 +1589,23 @@ impl Z80 {
     }
 
     fn inc_hl(&mut self) {
-        let address = self.get_hl();
-        let value = self.memory.read_byte(address);
-        self.memory.write_byte(address, value.wrapping_add(1));
+        let hl = self.get_hl();
+        let value = self.memory.read_byte(hl);
+        let result = value.wrapping_add(1);
+
+        self.set_inc_flags(result);
+
+        self.memory.write_byte(hl, result);
     }
 
     fn dec_hl(&mut self) {
-        let address = self.get_hl();
-        let value = self.memory.read_byte(address);
-        self.memory.write_byte(address, value.wrapping_sub(1));
+        let hl = self.get_hl();
+        let value = self.memory.read_byte(hl);
+        let result = value.wrapping_sub(1);
+
+        self.set_dec_flags(result);
+
+        self.memory.write_byte(hl, result);
     }
 
     // Stack operations
