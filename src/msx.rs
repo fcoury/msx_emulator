@@ -1,12 +1,14 @@
 use std::{cell::RefCell, fs::File, io::Read, rc::Rc};
 
-use crate::components::{cpu::Z80, memory::Memory, sound::AY38910, vdp::TMS9918};
+use crate::components::{cpu::Z80, display::Display, memory::Memory, sound::AY38910, vdp::TMS9918};
 
 pub struct Msx {
     cpu: Z80,
     vdp: Rc<RefCell<TMS9918>>,
     #[allow(unused)]
     psg: Rc<RefCell<AY38910>>,
+
+    display: Display,
 
     current_scanline: u16,
 
@@ -18,8 +20,10 @@ impl Msx {
     pub fn new() -> Self {
         let vdp = Rc::new(RefCell::new(TMS9918::new()));
         let psg = Rc::new(RefCell::new(AY38910::new()));
-        let mut cpu = Z80::new(Memory::new(64 * 1024));
 
+        let display = Display::new(256, 192);
+
+        let mut cpu = Z80::new(Memory::new(64 * 1024));
         cpu.register_device(vdp.clone());
         cpu.register_device(psg.clone());
 
@@ -27,6 +31,7 @@ impl Msx {
             cpu,
             vdp,
             psg,
+            display,
             current_scanline: 0,
             max_cycles: None,
         }
@@ -61,9 +66,21 @@ impl Msx {
     }
 
     pub fn run(&mut self) {
+        let mut event_pump = self.display.sdl_context.event_pump().unwrap();
+
         self.cpu.max_cycles = self.max_cycles;
 
-        loop {
+        'running: loop {
+            // Handle input events
+            for event in event_pump.poll_iter() {
+                use sdl2::event::Event;
+                #[allow(clippy::single_match)]
+                match event {
+                    Event::Quit { .. } => break 'running,
+                    _ => {}
+                }
+            }
+
             self.cpu.execute_cycle();
             if self.cpu.halted {
                 break;
@@ -73,6 +90,7 @@ impl Msx {
             vdp.render_scanline(self.current_scanline);
 
             self.current_scanline = (self.current_scanline + 1) % 262;
+            self.display.update_screen(&vdp.screen_buffer);
         }
     }
 }

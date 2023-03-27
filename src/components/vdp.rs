@@ -4,13 +4,13 @@ use log::trace;
 
 use super::IoDevice;
 pub struct TMS9918 {
-    vram: Vec<u8>,
-    screen_mode: u8,
-    screen_buffer: Vec<Vec<u32>>,
-    address_register: u16,
-    data_latch: u8,
-    status_register: u8,
-    is_second_write: bool,
+    pub vram: Vec<u8>,
+    pub screen_mode: u8,
+    pub screen_buffer: Vec<Vec<u32>>,
+    pub address_register: u16,
+    pub data_latch: u8,
+    pub status_register: u8,
+    pub is_second_write: bool,
 }
 
 impl TMS9918 {
@@ -45,8 +45,8 @@ impl TMS9918 {
         const ROWS: u16 = 24;
         const PATTERN_HEIGHT: u16 = 8;
 
-        let foreground_color = 0xFFFFFF; // White color in RGBA8888 format
-        let background_color = 0xFF0000; // Black color in RGBA8888 format
+        let foreground_color = 0xFFFFFFFF; // White color in RGBA8888 format
+        let background_color = 0xFF0000FF; // Black color in RGBA8888 format
 
         if scanline >= ROWS * PATTERN_HEIGHT {
             return; // Beyond the visible screen area
@@ -80,6 +80,7 @@ impl IoDevice for TMS9918 {
     }
 
     fn read(&mut self, port: u8) -> u8 {
+        trace!("[vdp] Read from VDP port: {:02X}", port);
         match port {
             0x98 => {
                 // Read from Data port
