@@ -981,72 +981,66 @@ impl Z80 {
             }
             0xB6 => {
                 // OR (HL)
+                trace!("OR (HL)");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a | self.memory.read_byte(self.get_hl());
-                self.a = result;
+                let value = self.memory.read_byte(self.get_hl());
+                self.or_a(value);
             }
             0xF6 => {
                 // OR n
                 trace!("OR n");
                 let value = self.memory.read_byte(self.pc.wrapping_add(1));
                 self.pc = self.pc.wrapping_add(2);
-                let result = self.a | value;
-                self.a = result;
+                self.or_a(value);
             }
             0xAF => {
                 // XOR A
                 trace!("XOR A");
                 self.pc = self.pc.wrapping_add(1);
-                self.a = 0;
-
-                self.set_flag(Flag::Z, true);
-                self.set_flag(Flag::S, false);
-                self.set_flag(Flag::H, false);
-                self.set_flag(Flag::P, parity(self.a));
-                self.set_flag(Flag::N, false);
-                self.set_flag(Flag::C, false);
+                self.xor_a(self.a);
             }
             0xA8 => {
                 // XOR B
+                trace!("XOR B");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.b;
-                self.a = result;
+                self.xor_a(self.b);
             }
             0xA9 => {
                 // XOR C
+                trace!("XOR C");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.c;
-                self.a = result;
+                self.xor_a(self.c);
             }
             0xAA => {
                 // XOR D
+                trace!("XOR D");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.d;
-                self.a = result;
+                self.xor_a(self.d);
             }
             0xAB => {
                 // XOR E
+                trace!("XOR E");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.e;
-                self.a = result;
+                self.xor_a(self.e);
             }
             0xAC => {
                 // XOR H
+                trace!("XOR H");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.h;
-                self.a = result;
+                self.xor_a(self.h);
             }
             0xAD => {
                 // XOR L
+                trace!("XOR L");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.l;
-                self.a = result;
+                self.xor_a(self.l);
             }
             0xAE => {
                 // XOR (HL)
+                trace!("XOR (HL)");
+                let value = self.memory.read_byte(self.get_hl());
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a ^ self.memory.read_byte(self.get_hl());
-                self.a = result;
+                self.xor_a(value);
             }
             0xEE => {
                 // XOR n
@@ -1444,6 +1438,27 @@ impl Z80 {
         self.set_flag(Flag::Z, self.a == 0);
         self.set_flag(Flag::S, self.a & 0x80 != 0);
         self.set_flag(Flag::H, true);
+        self.set_flag(Flag::P, parity(self.a));
+        self.set_flag(Flag::N, false);
+        self.set_flag(Flag::C, false);
+    }
+
+    fn or_a(&mut self, value: u8) {
+        self.a |= value;
+
+        self.set_flag(Flag::Z, self.a == 0);
+        self.set_flag(Flag::S, self.a & 0x80 != 0);
+        self.set_flag(Flag::H, false);
+        self.set_flag(Flag::P, parity(self.a));
+        self.set_flag(Flag::N, false);
+        self.set_flag(Flag::C, false);
+    }
+
+    fn xor_a(&mut self, value: u8) {
+        self.a ^= value;
+        self.set_flag(Flag::Z, self.a == 0);
+        self.set_flag(Flag::S, self.a & 0x80 != 0);
+        self.set_flag(Flag::H, false);
         self.set_flag(Flag::P, parity(self.a));
         self.set_flag(Flag::N, false);
         self.set_flag(Flag::C, false);
