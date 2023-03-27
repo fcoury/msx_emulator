@@ -1,10 +1,16 @@
+use std::{cell::RefCell, rc::Rc};
+
+use super::{vdp::TMS9918, IoDevice};
+
 pub struct Memory {
+    vdp: Rc<RefCell<TMS9918>>,
     data: Vec<u8>,
 }
 
 impl Memory {
-    pub fn new(size: usize) -> Self {
+    pub fn new(vdp: Rc<RefCell<TMS9918>>, size: usize) -> Self {
         Memory {
+            vdp,
             data: vec![0; size],
         }
     }
@@ -33,7 +39,22 @@ impl Memory {
                 panic!("Writing to BASIC is not allowed")
             }
             0x8000..=0xBFFF => {
-                panic!("Writing to VRAM is not allowed")
+                // panic!("Writing to cartidge, does nothing")
+                match address {
+                    0x9800 => {
+                        // Write to VDP Data Register (0x98)
+                        // Implement VRAM write logic here
+                        let mut vdp = self.vdp.as_ref().borrow_mut();
+                        vdp.write(0x98, value);
+                    }
+                    0x9801 => {
+                        // Write to VDP Address Register (0x99)
+                        // Implement VRAM address setting logic here
+                        let mut vdp = self.vdp.as_ref().borrow_mut();
+                        vdp.write(0x99, value);
+                    }
+                    _ => {}
+                }
             }
             0xC000..=0xDFFF => self.data[address as usize] = value,
             0xE000..=0xFFFF => {

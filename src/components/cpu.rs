@@ -59,6 +59,7 @@ pub struct Z80 {
     // Debug options
     pub max_cycles: Option<u64>,
     cycles: u64,
+    last_f: u8,
 }
 
 impl Z80 {
@@ -92,6 +93,7 @@ impl Z80 {
             halted: false,
             max_cycles: None,
             cycles: 0,
+            last_f: 0,
         }
     }
 
@@ -417,7 +419,10 @@ impl Z80 {
             0x77 => {
                 // LD (HL), A
                 self.pc = self.pc.wrapping_add(1);
+                // trace!("LD (HL), A -> A before = 0x{:02X}", self.a);
                 self.ld_hl_a();
+                // trace!("           -> HL = 0x{:04X}", self.get_hl());
+                // trace!("           -> HL = 0x{:04X}", self.get_hl());
             }
             0x70 => {
                 // LD (HL), B
@@ -498,9 +503,15 @@ impl Z80 {
             }
             0x7E => {
                 // LD A, (HL)
-                trace!("LD A, (HL)");
                 self.pc = self.pc.wrapping_add(1);
+                trace!(
+                    "LD A, (HL) -> 0. A = 0x{:02X}, HL = 0x{:04X}, (HL) = 0x{:02X}",
+                    self.a,
+                    self.get_hl(),
+                    self.memory.read_byte(self.get_hl())
+                );
                 self.ld_a_hl();
+                trace!("           -> 1. A = 0x{:02X}", self.a);
             }
             0x11 => {
                 // LD DE, nn
@@ -808,10 +819,10 @@ impl Z80 {
             }
             0xD6 => {
                 // SUB n
+                trace!("SUB n");
                 let value = self.memory.read_byte(self.pc.wrapping_add(1));
                 self.pc = self.pc.wrapping_add(2);
-                let result = self.a.wrapping_sub(value);
-                self.a = result;
+                self.sub_a(value);
             }
             0x9F => {
                 // SBC A, A
@@ -873,8 +884,7 @@ impl Z80 {
                 // AND A
                 trace!("AND A");
                 self.pc = self.pc.wrapping_add(1);
-                let result = self.a & self.b;
-                self.a = result;
+                self.and_a(self.a);
             }
             0xA0 => {
                 // AND B
@@ -1068,8 +1078,9 @@ impl Z80 {
             }
             0x2F => {
                 // CPL
-                trace!("CPL");
+                trace!("CPL -> 0. A = 0x{:02X}", self.a);
                 self.a = !self.a;
+                trace!("       1. A = 0x{:02X}", self.a);
                 self.set_flag(Flag::N, true);
                 self.set_flag(Flag::H, true);
                 self.pc = self.pc.wrapping_add(1);
@@ -1111,9 +1122,14 @@ impl Z80 {
             }
             0xBE => {
                 // CP (HL)
-                trace!("CP (HL)");
-                let value = self.memory.read_byte(self.get_hl());
                 self.pc = self.pc.wrapping_add(1);
+                let value = self.memory.read_byte(self.get_hl());
+                trace!(
+                    "CP (HL) -> A = {:02X}, (HL) = {:04X}, HL = {:04X}",
+                    self.a,
+                    self.get_hl(),
+                    value
+                );
                 self.cp(value);
             }
             0xDD => {
@@ -1149,13 +1165,6 @@ impl Z80 {
                         panic!("Unknown opcode (CP (IY+d)) 0xDD 0x{:02X}", opcode);
                     }
                 }
-            }
-            0xBE => {
-                // CP (HL)
-                let hl_value = self.memory.read_byte(self.get_hl());
-                trace!("CP (HL) [0x{:04X}]", self.get_hl());
-                self.compare(self.a, hl_value);
-                self.pc = self.pc.wrapping_add(1);
             }
             0x3F => {
                 // CCF
@@ -1285,6 +1294,12 @@ impl Z80 {
                 }
             }
             0x20 | 0x28 | 0x30 | 0x38 => {
+                trace!(
+                    "Flags for JS - Z={} C={}",
+                    if self.check_flag(Flag::Z) { 1 } else { 0 },
+                    if self.check_flag(Flag::C) { 1 } else { 0 }
+                );
+
                 // JR cc, n
                 let condition = match opcode {
                     0x20 => !self.check_flag(Flag::Z), // JR NZ, n
@@ -1443,6 +1458,16 @@ impl Z80 {
         if inc_pc {
             self.pc = self.pc.wrapping_add(1);
         }
+
+        if self.f != self.last_f {
+            trace!(
+                " *** Flags updated -> before = {:08b}, after = {:08b} Z={}",
+                self.last_f,
+                self.f,
+                self.check_flag(Flag::Z)
+            );
+            self.last_f = self.f;
+        }
     }
 
     fn add_a(&mut self, value: u8) {
@@ -1491,7 +1516,10 @@ impl Z80 {
         self.set_flag(Flag::H, (self.a & 0x0F) < (value & 0x0F) + carry);
         self.set_flag(Flag::P, (self.a as i8) >= 0 && ((result as i8) < 0));
         self.set_flag(Flag::N, true);
-        self.set_flag(Flag::C, self.a < value + carry);
+        self.set_flag(
+            Flag::C,
+            self.a < value.checked_add(carry).unwrap_or(u8::MAX),
+        );
 
         self.a = result;
     }
@@ -1764,12 +1792,62 @@ impl Z80 {
         self.pc = address;
     }
 
-    fn compare(&mut self, a: u8, value: u8) {
-        let result = a.wrapping_sub(value);
-        self.set_flag(Flag::Z, result == 0);
-        self.set_flag(Flag::N, true);
-        self.set_flag(Flag::H, (a & 0x0F) < (value & 0x0F));
-        self.set_flag(Flag::C, a < value);
+    pub fn dump(&self, dump_memory: bool) {
+        println!("CPU State:");
+        println!("A: {:02X} F: {:02X}", self.a, self.f);
+        println!("B: {:02X} C: {:02X}", self.b, self.c);
+        println!("D: {:02X} E: {:02X}", self.d, self.e);
+        println!("H: {:02X} L: {:02X}", self.h, self.l);
+
+        println!("Flags:");
+        self.dump_flags();
+
+        println!("Alternate Registers:");
+        println!("B': {:02X} C': {:02X}", self.b_alt, self.c_alt);
+        println!("D': {:02X} E': {:02X}", self.d_alt, self.e_alt);
+        println!("H': {:02X} L': {:02X}", self.h_alt, self.l_alt);
+
+        println!("16-bit Registers:");
+        println!("SP: {:04X}", self.sp);
+        println!("PC: {:04X}", self.pc);
+        println!("IX: {:04X}", self.ix);
+        println!("IY: {:04X}", self.iy);
+
+        println!("Interrupts:");
+        println!("IFF1: {} IFF2: {}", self.iff1, self.iff2);
+        println!("IM: {}", self.im);
+        println!("Interrupt Request: {}", self.interrupt_request);
+
+        println!("Halted: {}", self.halted);
+
+        if dump_memory {
+            println!("Memory Dump:");
+            for address in (0x0000..0x10000).step_by(16) {
+                print!("{:04X}: ", address);
+                for offset in 0..16 {
+                    print!("{:02X} ", self.memory.read_byte((address + offset) as u16));
+                }
+                println!();
+            }
+        }
+    }
+
+    pub fn dump_flags(&self) {
+        fn debug_flag(value: bool) -> &'static str {
+            if value {
+                "1"
+            } else {
+                "0"
+            }
+        }
+
+        println!("Flags:");
+        println!("S (Sign):       {}", debug_flag(self.get_flag(Flag::S)));
+        println!("Z (Zero):       {}", debug_flag(self.get_flag(Flag::Z)));
+        println!("H (Half Carry): {}", debug_flag(self.get_flag(Flag::H)));
+        println!("P (Parity):     {}", debug_flag(self.get_flag(Flag::P)));
+        println!("N (Add/Sub):    {}", debug_flag(self.get_flag(Flag::N)));
+        println!("C (Carry):      {}", debug_flag(self.get_flag(Flag::C)));
     }
 }
 
@@ -1777,8 +1855,7 @@ fn overflow_sub(a: u8, b: u8, result: u8) -> bool {
     let signed_a = a as i8;
     let signed_b = b as i8;
     let signed_result = result as i8;
-    let overflow = ((signed_a ^ signed_b) & (signed_a ^ signed_result)) & 0x80 != 0;
-    overflow
+    (((signed_a as u8) ^ (signed_b as u8)) & ((signed_a as u8) ^ (signed_result as u8))) & 0x80 != 0
 }
 
 fn parity(value: u8) -> bool {

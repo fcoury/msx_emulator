@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fs::File, io::Read, rc::Rc};
+use std::{cell::RefCell, fs::File, io::Read, path::PathBuf, rc::Rc};
 
 use crate::components::{cpu::Z80, display::Display, memory::Memory, sound::AY38910, vdp::TMS9918};
 
@@ -13,6 +13,7 @@ pub struct Msx {
     current_scanline: u16,
 
     // debug options
+    pub breakpoints: Vec<u16>,
     pub max_cycles: Option<u64>,
 }
 
@@ -23,7 +24,7 @@ impl Msx {
 
         let display = Display::new(256, 192);
 
-        let mut cpu = Z80::new(Memory::new(64 * 1024));
+        let mut cpu = Z80::new(Memory::new(vdp.clone(), 64 * 1024));
         cpu.register_device(vdp.clone());
         cpu.register_device(psg.clone());
 
@@ -34,7 +35,12 @@ impl Msx {
             display,
             current_scanline: 0,
             max_cycles: None,
+            breakpoints: Vec::new(),
         }
+    }
+
+    pub fn add_breakpoint(&mut self, address: u16) {
+        self.breakpoints.push(address);
     }
 
     #[allow(unused)]
@@ -51,7 +57,7 @@ impl Msx {
         Ok(())
     }
 
-    pub fn load_bios(&mut self, path: &str) -> std::io::Result<()> {
+    pub fn load_bios(&mut self, path: PathBuf) -> std::io::Result<()> {
         let mut file = File::open(path)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
@@ -77,6 +83,12 @@ impl Msx {
             }
 
             self.cpu.execute_cycle();
+            if self.breakpoints.contains(&self.cpu.pc) {
+                println!("Breakpoint hit at {:#06X}", self.cpu.pc);
+                self.cpu.dump(false);
+                break;
+            }
+
             if self.cpu.halted {
                 break;
             }
