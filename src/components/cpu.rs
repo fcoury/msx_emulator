@@ -36,6 +36,8 @@ pub struct Z80 {
     // 16-bit registers
     pub sp: u16,
     pub pc: u16,
+    pub ix: u16,
+    pub iy: u16,
 
     // Interrupt flip-flops
     pub iff1: bool,
@@ -79,6 +81,8 @@ impl Z80 {
             l_alt: 0,
             sp: 0xF000,
             pc: 0,
+            ix: 0,
+            iy: 0,
             iff1: false,
             iff2: false,
             im: 0,
@@ -1070,21 +1074,81 @@ impl Z80 {
                 self.set_flag(Flag::H, true);
                 self.pc = self.pc.wrapping_add(1);
             }
+            0xBF => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.a);
+            }
+            0xB8 => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.b);
+            }
+            0xB9 => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.c);
+            }
+            0xBA => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.d);
+            }
+            0xBB => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.e);
+            }
+            0xBC => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.h);
+            }
+            0xBD => {
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(self.l);
+            }
             0xFE => {
                 // CP n
-                let immediate_value = self.read_byte(self.pc.wrapping_add(1));
-                let a = self.a;
-
-                trace!("CP 0x{:02X}", immediate_value);
-
-                let result = a.wrapping_sub(immediate_value);
-
-                self.set_flag(Flag::Z, result == 0);
-                self.set_flag(Flag::N, true);
-                self.set_flag(Flag::H, (a & 0x0F) < (immediate_value & 0x0F));
-                self.set_flag(Flag::C, a < immediate_value);
-
+                trace!("CP n");
+                let value = self.memory.read_byte(self.pc.wrapping_add(1));
                 self.pc = self.pc.wrapping_add(2);
+                self.cp(value);
+            }
+            0xBE => {
+                // CP (HL)
+                trace!("CP (HL)");
+                let value = self.memory.read_byte(self.get_hl());
+                self.pc = self.pc.wrapping_add(1);
+                self.cp(value);
+            }
+            0xDD => {
+                trace!("CP (IX+d)");
+                self.pc = self.pc.wrapping_add(1);
+                let opcode = self.memory.read_byte(self.pc);
+                match opcode {
+                    0xBE => {
+                        self.pc = self.pc.wrapping_add(1);
+                        let d = self.memory.read_byte(self.pc) as i8;
+                        self.pc = self.pc.wrapping_add(1);
+                        let value = self.memory.read_byte(self.get_ix_d(d as u8));
+                        self.cp(value);
+                    }
+                    _ => {
+                        panic!("Unknown opcode (CP (IX+d)) 0xDD 0x{:02X}", opcode);
+                    }
+                }
+            }
+            0xFD => {
+                trace!("CP (IY+d)");
+                self.pc = self.pc.wrapping_add(1);
+                let opcode = self.memory.read_byte(self.pc);
+                match opcode {
+                    0xBE => {
+                        self.pc = self.pc.wrapping_add(1);
+                        let d = self.memory.read_byte(self.pc) as i8;
+                        self.pc = self.pc.wrapping_add(1);
+                        let value = self.memory.read_byte(self.get_iy_d(d as u8));
+                        self.cp(value);
+                    }
+                    _ => {
+                        panic!("Unknown opcode (CP (IY+d)) 0xDD 0x{:02X}", opcode);
+                    }
+                }
             }
             0xBE => {
                 // CP (HL)
@@ -1464,6 +1528,17 @@ impl Z80 {
         self.set_flag(Flag::C, false);
     }
 
+    fn cp(&mut self, value: u8) {
+        let result = self.a.wrapping_sub(value);
+
+        self.set_flag(Flag::Z, result == 0);
+        self.set_flag(Flag::S, result & 0x80 != 0);
+        self.set_flag(Flag::H, (self.a & 0xF) < (value & 0xF));
+        self.set_flag(Flag::P, overflow_sub(self.a, value, result));
+        self.set_flag(Flag::N, true);
+        self.set_flag(Flag::C, self.a < value);
+    }
+
     // Helper function to set flags for INC
     fn set_inc_flags(&mut self, value: u8) {
         self.set_flag(Flag::Z, value == 0);
@@ -1548,6 +1623,16 @@ impl Z80 {
 
     fn get_hl(&self) -> u16 {
         (self.h as u16) << 8 | self.l as u16
+    }
+
+    fn get_ix_d(&self, d: u8) -> u16 {
+        let displacement = d as i8 as u16;
+        self.ix.wrapping_add(displacement)
+    }
+
+    fn get_iy_d(&self, d: u8) -> u16 {
+        let displacement = d as i8 as u16;
+        self.iy.wrapping_add(displacement)
     }
 
     fn set_af(&mut self, value: u16) {
@@ -1686,6 +1771,14 @@ impl Z80 {
         self.set_flag(Flag::H, (a & 0x0F) < (value & 0x0F));
         self.set_flag(Flag::C, a < value);
     }
+}
+
+fn overflow_sub(a: u8, b: u8, result: u8) -> bool {
+    let signed_a = a as i8;
+    let signed_b = b as i8;
+    let signed_result = result as i8;
+    let overflow = ((signed_a ^ signed_b) & (signed_a ^ signed_result)) & 0x80 != 0;
+    overflow
 }
 
 fn parity(value: u8) -> bool {

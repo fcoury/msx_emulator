@@ -10,7 +10,7 @@ use crate::msx::Msx;
 
 fn main() {
     Builder::new()
-        // .filter(Some("msx_emulator::components::cpu"), LevelFilter::Error)
+        .filter(Some("msx_emulator::components::cpu"), LevelFilter::Error)
         .filter(None, LevelFilter::Trace)
         .init();
 
