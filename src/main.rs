@@ -11,15 +11,17 @@ use crate::msx::Msx;
 fn main() {
     Builder::new().filter(None, LevelFilter::Trace).init();
 
-    let binary_path = std::env::args().nth(1).expect("No binary path provided");
+    let rom_path = std::env::args().nth(1).expect("No binary path provided");
     let max_cycles = std::env::args()
         .nth(2)
         .map(|length| length.parse().unwrap());
-    let load_address = 0x0000; // Change this value based on your desired load address
+    // let load_address = 0x0000; // Change this value based on your desired load address
 
     let mut msx = Msx::new();
-    msx.load_binary(&binary_path, load_address)
-        .expect("Failed to load the binary");
+    msx.load_bios(&rom_path).expect("Failed to load the BIOS");
+
+    // msx.load_binary(&binary_path, load_address)
+    //     .expect("Failed to load the binary");
     msx.max_cycles = max_cycles;
     msx.run();
 }

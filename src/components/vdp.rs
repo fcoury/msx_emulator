@@ -1,9 +1,12 @@
 #![allow(dead_code)]
 
+use log::trace;
+
 use super::IoDevice;
 pub struct TMS9918 {
     vram: Vec<u8>,
     screen_mode: u8,
+    screen_buffer: Vec<Vec<u32>>,
     address_register: u16,
     data_latch: u8,
     status_register: u8,
@@ -12,9 +15,15 @@ pub struct TMS9918 {
 
 impl TMS9918 {
     pub fn new() -> Self {
+        const SCREEN_WIDTH: usize = 320;
+        const SCREEN_HEIGHT: usize = 192;
+
+        let screen_buffer = vec![vec![0; SCREEN_WIDTH]; SCREEN_HEIGHT];
+
         Self {
             vram: vec![0; 16 * 1024], // 16 KB VRAM
-            screen_mode: 2,
+            screen_mode: 0,
+            screen_buffer,
             address_register: 0,
             data_latch: 0,
             status_register: 0,
@@ -22,11 +31,55 @@ impl TMS9918 {
         }
     }
 
-    pub fn render_scanline(&mut self) {}
+    pub fn render_scanline(&mut self, scanline: u16) {
+        #[allow(clippy::single_match)]
+        match self.screen_mode {
+            0 => self.render_scanline_text_mode(scanline),
+            // Add other screen modes here
+            _ => (), // Ignore unsupported screen modes
+        }
+    }
+
+    fn render_scanline_text_mode(&mut self, scanline: u16) {
+        const CHARS_PER_ROW: u16 = 40;
+        const ROWS: u16 = 24;
+        const PATTERN_HEIGHT: u16 = 8;
+
+        let foreground_color = 0xFFFFFF; // White color in RGBA8888 format
+        let background_color = 0xFF0000; // Black color in RGBA8888 format
+
+        if scanline >= ROWS * PATTERN_HEIGHT {
+            return; // Beyond the visible screen area
+        }
+
+        let row = scanline / PATTERN_HEIGHT;
+        let y_within_pattern = scanline % PATTERN_HEIGHT;
+
+        for col in 0..CHARS_PER_ROW {
+            let char_index = self.vram[(row * CHARS_PER_ROW + col) as usize];
+            let pattern_offset = (char_index as u16) * PATTERN_HEIGHT + y_within_pattern;
+            let pattern_line = self.vram[pattern_offset as usize];
+
+            for x_within_pattern in 0..6 {
+                let pixel = (pattern_line >> (7 - x_within_pattern)) & 1;
+                let x = (col * 8 + x_within_pattern) as usize;
+                let y = scanline as usize;
+                self.screen_buffer[y][x] = if pixel == 1 {
+                    foreground_color
+                } else {
+                    background_color
+                };
+            }
+        }
+    }
 }
 
 impl IoDevice for TMS9918 {
-    fn read(&mut self, port: u16) -> u8 {
+    fn is_valid_port(&self, port: u8) -> bool {
+        matches!(port, 0x98 | 0x99)
+    }
+
+    fn read(&mut self, port: u8) -> u8 {
         match port {
             0x98 => {
                 // Read from Data port
@@ -45,15 +98,21 @@ impl IoDevice for TMS9918 {
         }
     }
 
-    fn write(&mut self, port: u16, data: u8) {
+    fn write(&mut self, port: u8, data: u8) {
         match port {
             0x98 => {
                 // Write to Data port
+                trace!(
+                    "[vdp] Write to VRAM[{:04X}] = {:02X}",
+                    self.address_register,
+                    data
+                );
                 self.vram[self.address_register as usize] = data;
                 self.address_register = self.address_register.wrapping_add(1) & 0x3FFF;
             }
             0x99 => {
                 // Write to Control port
+                trace!("[vdp] Write to VDP control port: {:02X}", data);
                 if self.is_second_write {
                     // Second write: set high bits of address and command bits
                     self.address_register =
