@@ -55,7 +55,7 @@ impl Client {
     pub fn init(&mut self) -> Result<()> {
         self.send("set power off")?;
         self.send("machine HOTBIT")?;
-        self.send("debug set_bp 0x0001")?;
+        self.send("debug set_bp 0x0000")?;
         self.send("set power on")?;
         Ok(())
     }
@@ -76,6 +76,7 @@ impl Client {
         let e = self.send("reg e")?.parse()?;
         let h = self.send("reg h")?.parse()?;
         let l = self.send("reg l")?.parse()?;
+        let hl = self.send("reg hl")?.parse()?;
 
         Ok(InternalState {
             pc,
@@ -88,6 +89,7 @@ impl Client {
             e,
             h,
             l,
+            hl,
         })
     }
 

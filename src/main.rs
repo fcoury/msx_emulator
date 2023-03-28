@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     Builder::new()
-        // .filter(Some("msx_emulator::components::cpu"), LevelFilter::Info)
+        .filter(Some("msx_emulator::components::cpu"), LevelFilter::Info)
         .filter(Some("rustyline"), LevelFilter::Info)
         .filter(None, LevelFilter::Trace)
         .init();

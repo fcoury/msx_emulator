@@ -6,6 +6,16 @@ use crate::internal_state::InternalState;
 
 use super::{memory::Memory, IoDevice};
 
+// static constexpr byte S_FLAG = 0x80;
+// static constexpr byte Z_FLAG = 0x40;
+// static constexpr byte Y_FLAG = 0x20;
+// static constexpr byte H_FLAG = 0x10;
+// static constexpr byte X_FLAG = 0x08;
+// static constexpr byte V_FLAG = 0x04;
+// static constexpr byte P_FLAG = V_FLAG;
+// static constexpr byte N_FLAG = 0x02;
+// static constexpr byte C_FLAG = 0x01;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Flag {
     S = 0x80, // Sign
@@ -156,6 +166,7 @@ impl Z80 {
             l: self.l,
             sp: self.sp,
             pc: self.pc,
+            hl: self.get_hl(),
         }
     }
 
@@ -1184,15 +1195,15 @@ impl Z80 {
             }
             0xBE => {
                 // CP (HL)
-                self.pc = self.pc.wrapping_add(1);
                 let value = self.memory.read_byte(self.get_hl());
                 trace!(
-                    "CP (HL) -> A = {:02X}, (HL) = {:04X}, HL = {:04X}",
+                    "CP (HL) -> A = {:02X}, HL = {:04X}, (HL) = {:02X}",
                     self.a,
                     self.get_hl(),
                     value
                 );
                 self.cp(value);
+                self.pc = self.pc.wrapping_add(1);
             }
             0xDD => {
                 trace!("CP (IX+d)");
@@ -1529,15 +1540,15 @@ impl Z80 {
             // Interrupts
             // EI
             0xFB => {
+                trace!("EI");
                 self.pc = self.pc.wrapping_add(1);
                 self.iff1 = true;
             }
             // DI
             0xF3 => {
-                println!("pc before = {:04X}", self.pc);
+                trace!("DI");
                 self.pc = self.pc.wrapping_add(1);
                 self.iff1 = false;
-                println!("pc after = {:04X}", self.pc);
             }
 
             _ => panic!("Unhandled opcode: {:02X}", opcode),
@@ -1653,10 +1664,12 @@ impl Z80 {
     }
 
     fn cp(&mut self, value: u8) {
+        println!("Current A = {:02X}", self.a);
         let result = self.a.wrapping_sub(value);
+        println!("Result = {:02X}", result);
 
-        self.set_flag(Flag::Z, result == 0);
         self.set_flag(Flag::S, result & 0x80 != 0);
+        self.set_flag(Flag::Z, result == 0);
         self.set_flag(Flag::H, (self.a & 0xF) < (value & 0xF));
         self.set_flag(Flag::P, overflow_sub(self.a, value, result));
         self.set_flag(Flag::N, true);

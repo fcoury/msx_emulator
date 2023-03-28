@@ -114,8 +114,17 @@ impl Msx {
                 }
             }
 
-            let opcode = self.cpu.memory.read_byte(self.cpu.pc);
+            let last_opcode = self.cpu.memory.read_byte(self.cpu.pc);
+            println!(
+                "running pc = {:#06X} opcode = {:#04X}",
+                self.cpu.pc, last_opcode
+            );
             self.cpu.execute_cycle();
+            println!(
+                "    ran pc = {:#06X} opcode = {:#04X}",
+                self.cpu.pc,
+                self.cpu.memory.read_byte(self.cpu.pc)
+            );
 
             let mut stop = false;
 
@@ -127,7 +136,6 @@ impl Msx {
 
                 info!("openMSX: {}", emu_status);
                 info!("    MSX: {}", our_status);
-                info!("    MSX: 0x{:2X}", opcode);
 
                 if self.break_on_mismatch && format!("{}", emu_status) != format!("{}", our_status)
                 {
@@ -167,6 +175,39 @@ impl Msx {
                                 self.cpu.a = value;
                                 let our_status = self.cpu.get_internal_state();
                                 info!("    MSX: {}", our_status);
+                            }
+                        }
+
+                        if command == "d" {
+                            if let Some(client) = &mut client {
+                                let emu_status = client.get_status()?;
+                                let our_status = self.cpu.get_internal_state();
+
+                                println!(" opcode: {:#04X}", last_opcode);
+                                println!(
+                                    " opcode: {:#04X}",
+                                    self.cpu.memory.read_byte(self.cpu.pc)
+                                );
+                                println!("openMSX: {}", emu_status);
+                                println!("   ours: {}", our_status);
+                            }
+                        }
+
+                        if command.starts_with("mem ") {
+                            let command = command.replace("mem ", "");
+                            let command = command.split(' ').collect::<Vec<&str>>();
+                            if command[0].starts_with("0x") {
+                                let address = u16::from_str_radix(&command[0][2..], 16).unwrap();
+                                let our_status = self.cpu.memory.read_byte(address);
+
+                                if let Some(client) = &mut client {
+                                    let emu_status = client
+                                        .send(&format!("debug read memory 0x{:04X}", address))?;
+                                    let value = u8::from_str_radix(&emu_status, 8).unwrap();
+                                    info!("openMSX: {:#04X}", value);
+                                }
+
+                                info!("   ours: {:#04X}", our_status);
                             }
                         }
 
