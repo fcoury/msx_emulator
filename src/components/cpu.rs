@@ -1,16 +1,18 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 use log::{error, info, trace};
+
+use crate::open_msx::InternalState;
 
 use super::{memory::Memory, IoDevice};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Flag {
-    Z = 0x80, // Zero
-    S = 0x40, // Sign
-    H = 0x20, // Half Carry
-    P = 0x10, // Parity/Overflow
-    N = 0x08, // Add/Subtract
+    S = 0x80, // Sign
+    Z = 0x40, // Zero
+    H = 0x10, // Half Carry
+    P = 0x04, // Parity/Overflow
+    N = 0x02, // Add/Subtract
     C = 0x01, // Carry
 }
 
@@ -63,18 +65,37 @@ pub struct Z80 {
     last_f: u8,
 }
 
+impl fmt::Display for Z80 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let flags = format!(
+            "S: {} Z: {} H: {} P/V: {} N: {} C: {}",
+            if self.f & 0b1000_0000 != 0 { "1" } else { "0" },
+            if self.f & 0b0100_0000 != 0 { "1" } else { "0" },
+            if self.f & 0b0010_0000 != 0 { "1" } else { "0" },
+            if self.f & 0b0001_0000 != 0 { "1" } else { "0" },
+            if self.f & 0b0000_1000 != 0 { "1" } else { "0" },
+            if self.f & 0b0000_0100 != 0 { "1" } else { "0" },
+        );
+        write!(
+            f,
+            "#{:04X} - A: #{:02X} B: #{:02X} C: #{:02X} D: #{:02X} E: #{:02X} F: #{:02X} H: #{:02X} L: #{:02X} - {}",
+            self.pc, self.a, self.b, self.c, self.d, self.e, self.f, self.h, self.l, flags
+        )
+    }
+}
+
 impl Z80 {
     pub fn new(memory: Memory) -> Self {
         let io_devices: Vec<Rc<RefCell<dyn IoDevice + 'static>>> = vec![];
         Z80 {
-            a: 0,
-            f: 0,
-            b: 0,
-            c: 0,
-            d: 0,
-            e: 0,
-            h: 0,
-            l: 0,
+            a: 0xff,
+            f: 0xff,
+            b: 0xff,
+            c: 0xff,
+            d: 0xff,
+            e: 0xff,
+            h: 0xff,
+            l: 0xff,
             b_alt: 0,
             c_alt: 0,
             d_alt: 0,
@@ -96,6 +117,45 @@ impl Z80 {
             track_flags: false,
             cycles: 0,
             last_f: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.a = 0xff;
+        self.f = 0xff;
+        self.b = 0xff;
+        self.c = 0xff;
+        self.d = 0xff;
+        self.e = 0xff;
+        self.h = 0xff;
+        self.l = 0xff;
+        self.b_alt = 0;
+        self.c_alt = 0;
+        self.d_alt = 0;
+        self.e_alt = 0;
+        self.h_alt = 0;
+        self.l_alt = 0;
+        self.sp = 0xF000;
+        self.pc = 0;
+        self.ix = 0;
+        self.iy = 0;
+        self.iff1 = false;
+        self.iff2 = false;
+        self.im = 0;
+    }
+
+    pub fn get_internal_state(&self) -> InternalState {
+        InternalState {
+            a: self.a,
+            f: self.f,
+            b: self.b,
+            c: self.c,
+            d: self.d,
+            e: self.e,
+            h: self.h,
+            l: self.l,
+            sp: self.sp,
+            pc: self.pc,
         }
     }
 
@@ -1348,6 +1408,46 @@ impl Z80 {
                 inc_pc = false;
 
                 match extended_opcode {
+                    0x00..=0x1F => {
+                        // RLC r
+                        let reg_index = extended_opcode & 0x07;
+
+                        trace!("RLC {}", reg_index);
+                        let value = self.get_register_by_index(reg_index);
+                        let carry = (value & 0x80) != 0;
+
+                        let result = (value << 1) | (carry as u8);
+                        self.set_register_by_index(reg_index, result);
+
+                        self.set_flag(Flag::S, result & 0x80 != 0);
+                        self.set_flag(Flag::Z, result == 0);
+                        self.set_flag(Flag::H, false);
+                        self.set_flag(Flag::P, result.count_ones() % 2 == 0);
+                        self.set_flag(Flag::N, false);
+                        self.set_flag(Flag::C, carry);
+
+                        self.pc = self.pc.wrapping_add(2);
+                    }
+                    0x20..=0x3F => {
+                        // SLA r
+                        let reg_index = extended_opcode & 0x07;
+
+                        trace!("SLA {}", reg_index);
+                        let value = self.get_register_by_index(reg_index);
+                        let carry = (value & 0x80) != 0;
+
+                        let result = value << 1;
+                        self.set_register_by_index(reg_index, result);
+
+                        self.set_flag(Flag::S, result & 0x80 != 0);
+                        self.set_flag(Flag::Z, result == 0);
+                        self.set_flag(Flag::H, false);
+                        self.set_flag(Flag::P, result.count_ones() % 2 == 0);
+                        self.set_flag(Flag::N, false);
+                        self.set_flag(Flag::C, carry);
+
+                        self.pc = self.pc.wrapping_add(2);
+                    }
                     0x40..=0x7F => {
                         // BIT b, r
                         let bit = (extended_opcode >> 3) & 0x07;
@@ -1356,9 +1456,12 @@ impl Z80 {
                         trace!("BIT {}, {}", bit, reg_index);
                         let value = self.get_register_by_index(reg_index);
                         let mask = 1 << bit;
+                        let bit_value = value & mask;
 
-                        self.set_flag(Flag::Z, value & mask == 0);
+                        self.set_flag(Flag::S, bit_value & 0x80 != 0);
+                        self.set_flag(Flag::Z, bit_value == 0);
                         self.set_flag(Flag::H, true);
+                        self.set_flag(Flag::P, bit_value == 0); // P/V flag is set to the inverse of the Z flag
                         self.set_flag(Flag::N, false);
 
                         self.pc = self.pc.wrapping_add(2);
@@ -1385,24 +1488,6 @@ impl Z80 {
                         let mask = 1 << bit;
 
                         self.set_register_by_index(reg_index, value | mask);
-                        self.pc = self.pc.wrapping_add(2);
-                    }
-                    0x00..=0x3F => {
-                        // SLA r
-                        let reg_index = extended_opcode & 0x07;
-
-                        trace!("SLA {}", reg_index);
-                        let value = self.get_register_by_index(reg_index);
-                        let carry = (value & 0x80) != 0;
-
-                        let result = value << 1;
-                        self.set_register_by_index(reg_index, result);
-
-                        self.set_flag(Flag::Z, result == 0);
-                        self.set_flag(Flag::N, false);
-                        self.set_flag(Flag::H, false);
-                        self.set_flag(Flag::C, carry);
-
                         self.pc = self.pc.wrapping_add(2);
                     }
                 }
@@ -1449,8 +1534,10 @@ impl Z80 {
             }
             // DI
             0xF3 => {
+                println!("pc before = {:04X}", self.pc);
                 self.pc = self.pc.wrapping_add(1);
                 self.iff1 = false;
+                println!("pc after = {:04X}", self.pc);
             }
 
             _ => panic!("Unhandled opcode: {:02X}", opcode),
@@ -1476,9 +1563,11 @@ impl Z80 {
         let a = self.a;
         let result = a.wrapping_add(value);
 
+        self.set_flag(Flag::S, result & 0x80 != 0);
         self.set_flag(Flag::Z, result == 0);
-        self.set_flag(Flag::N, false);
         self.set_flag(Flag::H, (a & 0x0F) + (value & 0x0F) > 0x0F);
+        self.set_flag(Flag::P, ((a ^ result) & !(a ^ value)) & 0x80 != 0);
+        self.set_flag(Flag::N, false);
         self.set_flag(Flag::C, (a as u16) + (value as u16) > 0xFF);
 
         self.a = result;
@@ -1501,9 +1590,11 @@ impl Z80 {
         let a = self.a;
         let result = a.wrapping_sub(value);
 
+        self.set_flag(Flag::S, result & 0x80 != 0);
         self.set_flag(Flag::Z, result == 0);
-        self.set_flag(Flag::N, true);
         self.set_flag(Flag::H, (a & 0x0F) < (value & 0x0F));
+        self.set_flag(Flag::P, ((a ^ value) & (a ^ result)) & 0x80 != 0);
+        self.set_flag(Flag::N, true);
         self.set_flag(Flag::C, a < value);
 
         self.a = result;
@@ -1549,8 +1640,11 @@ impl Z80 {
     }
 
     fn xor_a(&mut self, value: u8) {
+        info!("XOR A, {:02X}", value);
         self.a ^= value;
+        info!("Z[b] = {}", self.a == 0);
         self.set_flag(Flag::Z, self.a == 0);
+        info!("Z[a] = {}", self.get_flag(Flag::Z));
         self.set_flag(Flag::S, self.a & 0x80 != 0);
         self.set_flag(Flag::H, false);
         self.set_flag(Flag::P, parity(self.a));
@@ -1571,9 +1665,11 @@ impl Z80 {
 
     // Helper function to set flags for INC
     fn set_inc_flags(&mut self, value: u8) {
+        self.set_flag(Flag::S, value & 0x80 != 0);
         self.set_flag(Flag::Z, value == 0);
-        self.set_flag(Flag::N, false);
         self.set_flag(Flag::H, (value & 0x0F) == 0x00);
+        self.set_flag(Flag::P, value == 0x80);
+        self.set_flag(Flag::N, false);
     }
 
     // Helper function to set flags for DEC
@@ -1861,11 +1957,5 @@ fn overflow_sub(a: u8, b: u8, result: u8) -> bool {
 }
 
 fn parity(value: u8) -> bool {
-    let mut count = 0;
-    for i in 0..8 {
-        if value & (1 << i) != 0 {
-            count += 1;
-        }
-    }
-    count % 2 == 0
+    value.count_ones() % 2 == 0
 }

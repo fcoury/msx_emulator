@@ -74,19 +74,22 @@ impl Msx {
         Ok(())
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> anyhow::Result<()> {
         let mut event_pump = self.display.sdl_context.event_pump().unwrap();
 
-        let socket = find_socket().unwrap();
+        let socket = find_socket()?;
         info!("Connecting to OpenMSX on socket {:?}", socket);
-        let socket = UnixStream::connect(socket).unwrap();
-        let mut client = Client::new(&socket).unwrap();
-        send_openmsx_command(&mut client, "set power off").unwrap();
-        send_openmsx_command(&mut client, "debug set_bp 0x0000").unwrap();
-        send_openmsx_command(&mut client, "set power on").unwrap();
+        let socket = UnixStream::connect(socket)?;
+        let mut client = Client::new(&socket)?;
+        send_openmsx_command(&mut client, "set power off")?;
+        send_openmsx_command(&mut client, "machine HOTBIT")?;
+        send_openmsx_command(&mut client, "debug set_bp 0x0001")?;
+        send_openmsx_command(&mut client, "set power on")?;
 
         self.cpu.max_cycles = self.max_cycles;
         self.cpu.track_flags = self.track_flags;
+
+        let mut rl = rustyline::DefaultEditor::new()?;
 
         'running: loop {
             // Handle input events
@@ -99,19 +102,40 @@ impl Msx {
                 }
             }
 
+            let opcode = self.cpu.memory.read_byte(self.cpu.pc);
             self.cpu.execute_cycle();
-            send_openmsx_command(&mut client, "debug step").unwrap();
-            let pc = send_openmsx_command(&mut client, "reg PC").unwrap();
-            let pc = pc.trim();
-            // prints openMSX PC in hex
-            info!("openMSX PC: 0x{:04X}", pc.parse::<u16>().unwrap());
-            info!("    our PC: 0x{:04X}", self.cpu.pc);
-            assert_eq!(self.cpu.pc, pc.parse().unwrap());
+            client.get("debug step")?;
+            let emu_status = client.get_status()?;
+            let our_status = self.cpu.get_internal_state();
 
-            if self.breakpoints.contains(&self.cpu.pc) {
-                println!("Breakpoint hit at {:#06X}", self.cpu.pc);
-                self.cpu.dump(false);
-                break;
+            info!("openMSX: {}", emu_status);
+            info!("    MSX: {}", our_status);
+            info!("    MSX: 0x{:2X}", opcode);
+
+            let mismatch = format!("{}", emu_status) != format!("{}", our_status);
+
+            if mismatch {
+                info!("    Status mismatch!");
+            }
+
+            // if self.breakpoints.contains(&self.cpu.pc) {
+            //     println!("Breakpoint hit at {:#06X}", self.cpu.pc);
+            //     self.cpu.dump(false);
+            //     break;
+            // }
+            if mismatch {
+                let readline = rl.readline(">> ");
+
+                if let Ok(command) = readline {
+                    if command == "quit" || command == "q" {
+                        break;
+                    }
+
+                    if command == "reset" {
+                        self.cpu.reset();
+                        client.get("reset")?;
+                    }
+                }
             }
 
             if self.cpu.halted {
@@ -124,11 +148,14 @@ impl Msx {
             self.current_scanline = (self.current_scanline + 1) % 262;
             self.display.update_screen(&vdp.screen_buffer);
         }
+
+        send_openmsx_command(&mut client, "set power off")?;
+        Ok(())
     }
 }
 
 fn send_openmsx_command(client: &mut Client, command: &str) -> anyhow::Result<String> {
-    match client.request(&command.to_string()) {
+    match client.request(command) {
         Ok(Response::Ok(data)) => Ok(data),
         Ok(Response::Nok(data)) => Err(anyhow!("openMSX error: {}", data)),
         Err(e) => Err(e),

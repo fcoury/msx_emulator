@@ -29,6 +29,7 @@ fn main() {
 
     Builder::new()
         // .filter(Some("msx_emulator::components::cpu"), LevelFilter::Info)
+        .filter(Some("rustyline"), LevelFilter::Info)
         .filter(None, LevelFilter::Trace)
         .init();
 
@@ -42,5 +43,5 @@ fn main() {
         let breakpoint = u16::from_str_radix(&breakpoint[2..], 16).unwrap();
         msx.add_breakpoint(breakpoint);
     }
-    msx.run();
+    msx.run().unwrap();
 }

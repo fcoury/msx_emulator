@@ -19,7 +19,8 @@ impl Memory {
         match address {
             0x0000..=0x3FFF => self.data[address as usize],
             0x4000..=0x7FFF => self.data[address as usize],
-            0x8000..=0xBFFF => self.data[address as usize],
+            // 0x8000..=0xBFFF => self.data[address as usize],
+            0x8000..=0xBFFF => 0xFF,
             0xC000..=0xDFFF => self.data[address as usize],
             0xE000..=0xFFFF => {
                 // Implement I/O read behavior here
