@@ -58,6 +58,7 @@ pub struct Z80 {
 
     // Debug options
     pub max_cycles: Option<u64>,
+    pub track_flags: bool,
     cycles: u64,
     last_f: u8,
 }
@@ -92,6 +93,7 @@ impl Z80 {
             io_devices,
             halted: false,
             max_cycles: None,
+            track_flags: false,
             cycles: 0,
             last_f: 0,
         }
@@ -1459,9 +1461,9 @@ impl Z80 {
             self.pc = self.pc.wrapping_add(1);
         }
 
-        if self.f != self.last_f {
+        if self.track_flags && self.f != self.last_f {
             trace!(
-                " *** Flags updated -> before = {:08b}, after = {:08b} Z={}",
+                " *** Flags updated -> before = {:08b}, after = {:08b} Z={}\n",
                 self.last_f,
                 self.f,
                 self.check_flag(Flag::Z)
