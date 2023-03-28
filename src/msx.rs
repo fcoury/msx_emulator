@@ -6,6 +6,7 @@ use log::info;
 use crate::{
     components::{cpu::Z80, display::Display, memory::Memory, sound::AY38910, vdp::TMS9918},
     open_msx::{find_socket, Client, Response},
+    Cli,
 };
 
 pub struct Msx {
@@ -21,11 +22,13 @@ pub struct Msx {
     // debug options
     pub breakpoints: Vec<u16>,
     pub max_cycles: Option<u64>,
+    open_msx: bool,
+    break_on_mismatch: bool,
     pub track_flags: bool,
 }
 
 impl Msx {
-    pub fn new() -> Self {
+    pub fn new(cli: &Cli) -> Self {
         let vdp = Rc::new(RefCell::new(TMS9918::new()));
         let psg = Rc::new(RefCell::new(AY38910::new()));
 
@@ -35,6 +38,12 @@ impl Msx {
         cpu.register_device(vdp.clone());
         cpu.register_device(psg.clone());
 
+        let mut breakpoints: Vec<u16> = Vec::new();
+        for breakpoint in &cli.breakpoint {
+            let breakpoint = u16::from_str_radix(&breakpoint[2..], 16).unwrap();
+            breakpoints.push(breakpoint);
+        }
+
         Self {
             cpu,
             vdp,
@@ -42,7 +51,9 @@ impl Msx {
             display,
             current_scanline: 0,
             max_cycles: None,
-            breakpoints: Vec::new(),
+            breakpoints,
+            open_msx: cli.open_msx,
+            break_on_mismatch: cli.break_on_mismatch,
             track_flags: false,
         }
     }
@@ -112,29 +123,52 @@ impl Msx {
             info!("    MSX: {}", our_status);
             info!("    MSX: 0x{:2X}", opcode);
 
-            let mismatch = format!("{}", emu_status) != format!("{}", our_status);
-
-            if mismatch {
+            let mut stop = false;
+            if self.break_on_mismatch && format!("{}", emu_status) != format!("{}", our_status) {
                 info!("    Status mismatch!");
+                stop = true;
             }
 
-            // if self.breakpoints.contains(&self.cpu.pc) {
-            //     println!("Breakpoint hit at {:#06X}", self.cpu.pc);
-            //     self.cpu.dump(false);
-            //     break;
-            // }
-            if mismatch {
-                let readline = rl.readline(">> ");
+            if self.breakpoints.contains(&self.cpu.pc) {
+                println!("Breakpoint hit at {:#06X}", self.cpu.pc);
+                stop = true;
+            }
 
-                if let Ok(command) = readline {
-                    if command == "quit" || command == "q" {
-                        break;
-                    }
+            if stop {
+                let mut quit = false;
+                loop {
+                    let readline = rl.readline(">> ");
 
-                    if command == "reset" {
-                        self.cpu.reset();
-                        client.get("reset")?;
+                    if let Ok(command) = readline {
+                        if command == "quit" || command == "q" {
+                            quit = true;
+                            break;
+                        }
+
+                        if command == "reset" {
+                            self.cpu.reset();
+                            client.get("reset")?;
+                        }
+
+                        if command.starts_with("set ") {
+                            let command = command.replace("set ", "");
+                            let command = command.split(' ').collect::<Vec<&str>>();
+                            if command[0] == "a" {
+                                let value = u8::from_str_radix(command[1], 16).unwrap();
+                                self.cpu.a = value;
+                                let our_status = self.cpu.get_internal_state();
+                                info!("    MSX: {}", our_status);
+                            }
+                        }
+
+                        if command.starts_with("cont") {
+                            break;
+                        }
                     }
+                }
+
+                if quit {
+                    break;
                 }
             }
 

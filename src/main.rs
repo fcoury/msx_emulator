@@ -13,7 +13,7 @@ use log::LevelFilter;
 use crate::msx::Msx;
 
 #[derive(Parser, Debug)]
-struct Cli {
+pub struct Cli {
     rom_path: PathBuf,
     max_cycles: Option<u64>,
 
@@ -22,6 +22,12 @@ struct Cli {
 
     #[clap(short, long)]
     breakpoint: Vec<String>,
+
+    #[clap(short, long)]
+    open_msx: bool,
+
+    #[clap(short = 'm', long)]
+    break_on_mismatch: bool,
 }
 
 fn main() {
@@ -33,7 +39,7 @@ fn main() {
         .filter(None, LevelFilter::Trace)
         .init();
 
-    let mut msx = Msx::new();
+    let mut msx = Msx::new(&cli);
     msx.load_bios(cli.rom_path)
         .expect("Failed to load the BIOS");
 
