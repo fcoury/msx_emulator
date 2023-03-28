@@ -3,6 +3,7 @@
 use log::trace;
 
 use super::IoDevice;
+
 pub struct AY38910 {
     registers: [u8; 16],
     selected_register: u8,

@@ -1,11 +1,10 @@
-use std::{cell::RefCell, fs::File, io::Read, os::unix::net::UnixStream, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, fs::File, io::Read, path::PathBuf, rc::Rc};
 
-use anyhow::anyhow;
 use log::info;
 
 use crate::{
     components::{cpu::Z80, display::Display, memory::Memory, sound::AY38910, vdp::TMS9918},
-    open_msx::{find_socket, Client, Response},
+    open_msx::Client,
     Cli,
 };
 
@@ -88,14 +87,16 @@ impl Msx {
     pub fn run(&mut self) -> anyhow::Result<()> {
         let mut event_pump = self.display.sdl_context.event_pump().unwrap();
 
-        let socket = find_socket()?;
-        info!("Connecting to OpenMSX on socket {:?}", socket);
-        let socket = UnixStream::connect(socket)?;
-        let mut client = Client::new(&socket)?;
-        send_openmsx_command(&mut client, "set power off")?;
-        send_openmsx_command(&mut client, "machine HOTBIT")?;
-        send_openmsx_command(&mut client, "debug set_bp 0x0001")?;
-        send_openmsx_command(&mut client, "set power on")?;
+        info!("OpenMSX: {}", self.open_msx);
+        let mut client = if self.open_msx {
+            let mut client = Client::new()?;
+            client.init()?;
+            println!("Connected to openMSX! (type 'quit' to exit)");
+
+            Some(client)
+        } else {
+            None
+        };
 
         self.cpu.max_cycles = self.max_cycles;
         self.cpu.track_flags = self.track_flags;
@@ -115,18 +116,24 @@ impl Msx {
 
             let opcode = self.cpu.memory.read_byte(self.cpu.pc);
             self.cpu.execute_cycle();
-            client.get("debug step")?;
-            let emu_status = client.get_status()?;
-            let our_status = self.cpu.get_internal_state();
-
-            info!("openMSX: {}", emu_status);
-            info!("    MSX: {}", our_status);
-            info!("    MSX: 0x{:2X}", opcode);
 
             let mut stop = false;
-            if self.break_on_mismatch && format!("{}", emu_status) != format!("{}", our_status) {
-                info!("    Status mismatch!");
-                stop = true;
+
+            if let Some(client) = &mut client {
+                client.step()?;
+
+                let emu_status = client.get_status()?;
+                let our_status = self.cpu.get_internal_state();
+
+                info!("openMSX: {}", emu_status);
+                info!("    MSX: {}", our_status);
+                info!("    MSX: 0x{:2X}", opcode);
+
+                if self.break_on_mismatch && format!("{}", emu_status) != format!("{}", our_status)
+                {
+                    info!("    Status mismatch!");
+                    stop = true;
+                }
             }
 
             if self.breakpoints.contains(&self.cpu.pc) {
@@ -146,8 +153,10 @@ impl Msx {
                         }
 
                         if command == "reset" {
-                            self.cpu.reset();
-                            client.get("reset")?;
+                            if let Some(client) = &mut client {
+                                self.cpu.reset();
+                                client.send("reset")?;
+                            }
                         }
 
                         if command.starts_with("set ") {
@@ -183,15 +192,10 @@ impl Msx {
             self.display.update_screen(&vdp.screen_buffer);
         }
 
-        send_openmsx_command(&mut client, "set power off")?;
-        Ok(())
-    }
-}
+        if let Some(client) = &mut client {
+            client.send("set power off")?;
+        }
 
-fn send_openmsx_command(client: &mut Client, command: &str) -> anyhow::Result<String> {
-    match client.request(command) {
-        Ok(Response::Ok(data)) => Ok(data),
-        Ok(Response::Nok(data)) => Err(anyhow!("openMSX error: {}", data)),
-        Err(e) => Err(e),
+        Ok(())
     }
 }

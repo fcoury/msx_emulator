@@ -1,5 +1,4 @@
 use std::env;
-use std::fmt;
 use std::io::{BufWriter, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -9,71 +8,39 @@ use tracing::{event, span, Level};
 use walkdir::WalkDir;
 use xml::reader::{EventReader, XmlEvent};
 
-pub struct Client<'a> {
-    pub reader: EventReader<&'a UnixStream>,
-    pub writer: BufWriter<&'a UnixStream>,
-}
+use crate::internal_state::InternalState;
 
 pub enum Response {
     Ok(String),
     Nok(String),
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct InternalState {
-    // 8-bit registers
-    pub a: u8,
-    pub f: u8,
-    pub b: u8,
-    pub c: u8,
-    pub d: u8,
-    pub e: u8,
-    pub h: u8,
-    pub l: u8,
-
-    // 16-bit registers
-    pub sp: u16,
-    pub pc: u16,
+pub struct Client {
+    pub socket: UnixStream,
+    pub reader: EventReader<UnixStream>,
+    pub writer: BufWriter<UnixStream>,
 }
 
-impl fmt::Display for InternalState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let flags = format!(
-            "S: {} Z: {} H: {} P/V: {} N: {} C: {}",
-            if self.f & 0b1000_0000 != 0 { "1" } else { "0" },
-            if self.f & 0b0100_0000 != 0 { "1" } else { "0" },
-            if self.f & 0b0001_0000 != 0 { "1" } else { "0" },
-            if self.f & 0b0000_0100 != 0 { "1" } else { "0" },
-            if self.f & 0b0000_0010 != 0 { "1" } else { "0" },
-            if self.f & 0b0000_0001 != 0 { "1" } else { "0" },
-        );
-        // FIXME apparently the F3 and F5 registers are accounted for on the openMSX, we're skipping it for now
-        // write!(
-        //     f,
-        //     "#{:04X} - A: #{:02X} B: #{:02X} C: #{:02X} D: #{:02X} E: #{:02X} F: #{:02X} H: #{:02X} L: #{:02X} - {}",
-        //     self.pc, self.a, self.b, self.c, self.d, self.e, self.f, self.h, self.l, flags
-        // )
-        write!(
-            f,
-            "#{:04X} - A: #{:02X} B: #{:02X} C: #{:02X} D: #{:02X} E: #{:02X} H: #{:02X} L: #{:02X} - {}",
-            self.pc, self.a, self.b, self.c, self.d, self.e, self.h, self.l, flags
-        )
-    }
-}
-
-impl<'a> Client<'a> {
-    pub fn new(socket: &'a UnixStream) -> Result<Client<'a>, Error> {
+impl Client {
+    pub fn new() -> Result<Client, Error> {
         let span = span!(Level::DEBUG, "Client::new");
         let _enter = span.enter();
 
-        let writer = BufWriter::new(socket);
-        let mut reader = EventReader::new(socket);
+        let socket = find_socket()?;
+        let socket = UnixStream::connect(socket)?;
+
+        let writer = BufWriter::new(socket.try_clone()?);
+        let mut reader = EventReader::new(socket.try_clone()?);
 
         loop {
             match reader.next() {
                 Ok(XmlEvent::StartElement { name, .. }) if name.local_name == "openmsx-output" => {
                     event!(Level::DEBUG, "openMSX is ready.");
-                    return Ok(Client { reader, writer });
+                    return Ok(Client {
+                        socket,
+                        reader,
+                        writer,
+                    });
                 }
                 Ok(event) => {
                     event!(Level::TRACE, "xml event: {event:?}", event = event);
@@ -85,17 +52,30 @@ impl<'a> Client<'a> {
         }
     }
 
+    pub fn init(&mut self) -> Result<()> {
+        self.send("set power off")?;
+        self.send("machine HOTBIT")?;
+        self.send("debug set_bp 0x0001")?;
+        self.send("set power on")?;
+        Ok(())
+    }
+
+    pub fn step(&mut self) -> Result<()> {
+        self.send("debug step")?;
+        Ok(())
+    }
+
     pub fn get_status(&mut self) -> anyhow::Result<InternalState> {
-        let pc = self.get("reg pc")?.parse()?;
-        let sp = self.get("reg sp")?.parse()?;
-        let a = self.get("reg a")?.parse()?;
-        let f = self.get("reg f")?.parse()?;
-        let b = self.get("reg b")?.parse()?;
-        let c = self.get("reg c")?.parse()?;
-        let d = self.get("reg d")?.parse()?;
-        let e = self.get("reg e")?.parse()?;
-        let h = self.get("reg h")?.parse()?;
-        let l = self.get("reg l")?.parse()?;
+        let pc = self.send("reg pc")?.parse()?;
+        let sp = self.send("reg sp")?.parse()?;
+        let a = self.send("reg a")?.parse()?;
+        let f = self.send("reg f")?.parse()?;
+        let b = self.send("reg b")?.parse()?;
+        let c = self.send("reg c")?.parse()?;
+        let d = self.send("reg d")?.parse()?;
+        let e = self.send("reg e")?.parse()?;
+        let h = self.send("reg h")?.parse()?;
+        let l = self.send("reg l")?.parse()?;
 
         Ok(InternalState {
             pc,
@@ -111,15 +91,17 @@ impl<'a> Client<'a> {
         })
     }
 
-    pub fn get(&mut self, command: &str) -> anyhow::Result<String> {
+    pub fn send(&mut self, command: &str) -> anyhow::Result<String> {
         match self.request(command) {
             Ok(Response::Ok(data)) => Ok(data),
-            Ok(Response::Nok(data)) => Err(anyhow!("openMSX error: {}", data)),
+            Ok(Response::Nok(data)) => {
+                Err(anyhow!("openMSX error running '{}': {}", command, data))
+            }
             Err(e) => Err(e),
         }
     }
 
-    pub fn request(&mut self, command: &str) -> Result<Response, Error> {
+    fn request(&mut self, command: &str) -> Result<Response, Error> {
         let span = span!(Level::DEBUG, "sending a command");
         let _enter = span.enter();
 
@@ -130,19 +112,16 @@ impl<'a> Client<'a> {
 
         event!(Level::DEBUG, "sent command: {command}", command = command);
 
-        let mut ok: String = String::from("nok");
-
-        loop {
+        let ok = loop {
             match self.reader.next() {
                 Ok(XmlEvent::StartElement {
                     name, attributes, ..
                 }) if name.local_name == "reply" => {
-                    ok = attributes
+                    break attributes
                         .iter()
                         .find(|attr| attr.name.local_name == "result")
                         .map(|attr| attr.value.to_owned())
                         .ok_or_else(|| anyhow!("result attribute is undefined"))?;
-                    break;
                 }
                 Ok(event) => {
                     event!(Level::TRACE, "xml event: {event:?}", event = event);
@@ -151,7 +130,7 @@ impl<'a> Client<'a> {
                     return Err(anyhow!(err));
                 }
             };
-        }
+        };
 
         let mut data = String::new();
 

@@ -1,4 +1,5 @@
 mod components;
+mod internal_state;
 mod msx;
 mod open_msx;
 
@@ -15,6 +16,8 @@ use crate::msx::Msx;
 #[derive(Parser, Debug)]
 pub struct Cli {
     rom_path: PathBuf,
+
+    #[clap(short = 'c', long)]
     max_cycles: Option<u64>,
 
     #[clap(short, long)]
@@ -30,7 +33,7 @@ pub struct Cli {
     break_on_mismatch: bool,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     Builder::new()
@@ -46,8 +49,10 @@ fn main() {
     msx.max_cycles = cli.max_cycles;
     msx.track_flags = cli.track_flags;
     for breakpoint in cli.breakpoint {
-        let breakpoint = u16::from_str_radix(&breakpoint[2..], 16).unwrap();
+        let breakpoint = u16::from_str_radix(&breakpoint[2..], 16)?;
         msx.add_breakpoint(breakpoint);
     }
-    msx.run().unwrap();
+    msx.run()?;
+
+    Ok(())
 }

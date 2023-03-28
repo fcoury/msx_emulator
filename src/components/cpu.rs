@@ -2,7 +2,7 @@ use std::{cell::RefCell, fmt, rc::Rc};
 
 use log::{error, info, trace};
 
-use crate::open_msx::InternalState;
+use crate::internal_state::InternalState;
 
 use super::{memory::Memory, IoDevice};
 
@@ -1890,6 +1890,7 @@ impl Z80 {
         self.pc = address;
     }
 
+    #[allow(unused)]
     pub fn dump(&self, dump_memory: bool) {
         println!("CPU State:");
         println!("A: {:02X} F: {:02X}", self.a, self.f);
@@ -1930,6 +1931,7 @@ impl Z80 {
         }
     }
 
+    #[allow(unused)]
     pub fn dump_flags(&self) {
         fn debug_flag(value: bool) -> &'static str {
             if value {
