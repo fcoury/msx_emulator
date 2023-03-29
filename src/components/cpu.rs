@@ -226,6 +226,11 @@ impl Z80 {
                 trace!("RST 20H");
                 self.rst(0x20);
             }
+            0xFF => {
+                // RST 20H
+                error!("RST 38H from PC=0x{:04X}", self.pc);
+                self.rst(0x38);
+            }
             0x3E => {
                 // LD A, n
                 self.pc = self.pc.wrapping_add(1);
@@ -248,6 +253,7 @@ impl Z80 {
                 let value = self.memory.read_byte(self.pc);
                 trace!("LD C, 0x{:02X}", value);
                 self.c = value;
+                self.pc = self.pc.wrapping_add(1);
             }
             0x16 => {
                 // LD D, n
@@ -255,16 +261,25 @@ impl Z80 {
                 let value = self.memory.read_byte(self.pc);
                 trace!("LD D, 0x{:02X}", value);
                 self.d = value;
+                self.pc = self.pc.wrapping_add(1);
             }
             0x56 => {
                 // LD D, (HL)
                 trace!("LD D, (HL)");
                 self.d = self.read_byte(self.get_hl());
+                self.pc = self.pc.wrapping_add(1);
             }
             0x66 => {
                 // LD H, (HL)
-                trace!("LD D, (HL)");
+                trace!("LD H, (HL)");
                 self.h = self.read_byte(self.get_hl());
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0x5E => {
+                // LD E, (HL)
+                trace!("LD E, (HL)");
+                self.e = self.read_byte(self.get_hl());
+                self.pc = self.pc.wrapping_add(1);
             }
             0x1E => {
                 // LD E, n
@@ -272,6 +287,7 @@ impl Z80 {
                 let value = self.memory.read_byte(self.pc);
                 trace!("LD E, 0x{:02X}", value);
                 self.e = value;
+                self.pc = self.pc.wrapping_add(1);
             }
             0x26 => {
                 // LD H, n
@@ -547,7 +563,7 @@ impl Z80 {
                 let value = self.read_byte(self.pc.wrapping_add(1));
                 let hl_address = self.get_hl();
 
-                info!("LD (HL), 0x{:02X}", value);
+                trace!("LD (HL), 0x{:02X}", value);
 
                 self.memory.write_byte(hl_address, value);
                 self.pc = self.pc.wrapping_add(2);
@@ -780,6 +796,12 @@ impl Z80 {
                 // DEC HL
                 let hl = self.get_hl();
                 self.set_hl(hl.wrapping_sub(1));
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0x0B => {
+                // DEC BC
+                let bc = self.get_bc();
+                self.set_bc(bc.wrapping_sub(1));
                 self.pc = self.pc.wrapping_add(1);
             }
             0x35 => {
@@ -1376,6 +1398,17 @@ impl Z80 {
                 // Increment program counter
                 self.pc = self.pc.wrapping_add(1);
             }
+            0xE3 => {
+                // EX (SP), HL
+                let hl = self.get_hl();
+                let value = self.memory.read_word(self.sp);
+
+                self.memory.write_word(self.sp, hl);
+                self.set_hl(value);
+
+                self.pc = self.pc.wrapping_add(1);
+                trace!("EX (SP), HL");
+            }
             0xD9 => {
                 // EXX
                 trace!("EXX");
@@ -1387,6 +1420,26 @@ impl Z80 {
                 std::mem::swap(&mut self.l, &mut self.l_alt);
 
                 self.pc = self.pc.wrapping_add(1);
+            }
+            0xCC => {
+                // CALL Z, nn
+                let address = self.memory.read_word(self.pc.wrapping_add(1));
+                if self.get_flag(Flag::Z) {
+                    self.push(self.pc.wrapping_add(3));
+                    self.pc = address;
+                } else {
+                    self.pc = self.pc.wrapping_add(3);
+                }
+            }
+            0xDC => {
+                // CALL C, nn
+                let address = self.memory.read_word(self.pc.wrapping_add(1));
+                if self.get_flag(Flag::C) {
+                    self.push(self.pc.wrapping_add(3));
+                    self.pc = address;
+                } else {
+                    self.pc = self.pc.wrapping_add(3);
+                }
             }
             0xCD => {
                 // CALL nn
@@ -1556,7 +1609,10 @@ impl Z80 {
                 };
 
                 let address = self.read_word(self.pc.wrapping_add(1));
-                info!("JP cc, 0x{:04X} = {}", address, condition);
+                info!(
+                    "PC = {:04X} JP cc, 0x{:04X} = {}",
+                    self.pc, address, condition
+                );
 
                 self.pc = self.pc.wrapping_add(3);
 
@@ -1570,6 +1626,14 @@ impl Z80 {
                     if self.check_flag(Flag::Z) { 1 } else { 0 },
                     if self.check_flag(Flag::C) { 1 } else { 0 }
                 );
+
+                if opcode == 0x28 {
+                    info!(
+                        "Flags for JS - Z={} C={}",
+                        if self.check_flag(Flag::Z) { 1 } else { 0 },
+                        if self.check_flag(Flag::C) { 1 } else { 0 }
+                    );
+                }
 
                 // JR cc, n
                 let condition = match opcode {
@@ -1589,10 +1653,11 @@ impl Z80 {
                         self.pc.wrapping_add(offset as u16),
                         condition
                     ),
-                    0x28 => trace!(
-                        "JR Z, 0x{:04X} = {}",
+                    0x28 => info!(
+                        "JR Z, 0x{:04X} = {} (offset {})",
                         self.pc.wrapping_add(offset as u16),
-                        condition
+                        condition,
+                        offset
                     ),
                     0x30 => trace!(
                         "JR NC, 0x{:04X} = {}",
@@ -1758,7 +1823,10 @@ impl Z80 {
                 // OUT (n), A
                 let port = self.read_byte(self.pc.wrapping_add(1));
                 let data = self.a;
-                error!("OUT (#{:02X}), A=0x{:02X}", port, data);
+                error!(
+                    "PC = #{:04X} OUT (#{:02X}), A=0x{:02X}",
+                    self.pc, port, data
+                );
 
                 for device in &self.io_devices {
                     if device.borrow().is_valid_port(port) {

@@ -16,6 +16,10 @@ impl Memory {
             data[i] = 0xC9;
         });
 
+        (0x8003..=0xF37F).for_each(|i| {
+            data[i] = 0xFF;
+        });
+
         Memory { vdp, data }
     }
 
