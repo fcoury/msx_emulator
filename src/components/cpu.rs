@@ -1609,9 +1609,11 @@ impl Z80 {
                 };
 
                 let address = self.read_word(self.pc.wrapping_add(1));
-                info!(
+                trace!(
                     "PC = {:04X} JP cc, 0x{:04X} = {}",
-                    self.pc, address, condition
+                    self.pc,
+                    address,
+                    condition
                 );
 
                 self.pc = self.pc.wrapping_add(3);
