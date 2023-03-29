@@ -1,77 +1,100 @@
 #![allow(dead_code)]
 
-use tracing::{error, trace};
+use tracing::error;
 
 use super::IoDevice;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Sprite {
+    pub x: u8,
+    pub y: u8,
+    pub pattern: u32,
+    pub color: u8,
+    pub collision: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct TMS9918 {
-    pub vram: Vec<u8>,
-    pub screen_mode: u8,
-    pub screen_buffer: Vec<Vec<u32>>,
-    pub address_register: u16,
-    pub data_latch: u8,
-    pub status_register: u8,
-    pub is_second_write: bool,
+    pub vram: [u8; 0x4000],
+    pub registers: [u8; 8],
+    pub status: u8,
+    pub address: u16,
+    pub latch: bool,
+    pub command: u8,
+    pub screen_buffer: [u8; 256 * 192],
+    pub sprites: [Sprite; 8],
+    pub frame: u8,
+    pub line: u8,
+    pub vblank: bool,
 }
 
 impl TMS9918 {
     pub fn new() -> Self {
-        const SCREEN_WIDTH: usize = 320;
-        const SCREEN_HEIGHT: usize = 192;
-
-        let screen_buffer = vec![vec![0; SCREEN_WIDTH]; SCREEN_HEIGHT];
-
         Self {
-            vram: vec![0; 16 * 1024], // 16 KB VRAM
-            screen_mode: 0,
-            screen_buffer,
-            address_register: 0,
-            data_latch: 0,
-            status_register: 0,
-            is_second_write: false,
+            vram: [0; 0x4000],
+            registers: [0; 8],
+            status: 0,
+            address: 0,
+            latch: false,
+            command: 0,
+            screen_buffer: [0; 256 * 192],
+            sprites: [Sprite {
+                x: 0,
+                y: 0,
+                pattern: 0,
+                color: 0,
+                collision: false,
+            }; 8],
+            frame: 0,
+            line: 0,
+            vblank: false,
         }
     }
 
-    pub fn render_scanline(&mut self, scanline: u16) {
-        #[allow(clippy::single_match)]
-        match self.screen_mode {
-            0 => self.render_scanline_text_mode(scanline),
-            // Add other screen modes here
-            _ => {
-                error!("\nUnsupported screen mode: {}\n", self.screen_mode)
-            }
-        }
+    fn read_vram(&mut self) -> u8 {
+        let data = self.vram[self.address as usize];
+        self.address = self.address.wrapping_add(1);
+        self.latch = false;
+        data
     }
 
-    fn render_scanline_text_mode(&mut self, scanline: u16) {
-        const CHARS_PER_ROW: u16 = 40;
-        const ROWS: u16 = 24;
-        const PATTERN_HEIGHT: u16 = 8;
+    fn write_vram(&mut self, data: u8) {
+        self.vram[self.address as usize] = data;
+        self.address = self.address.wrapping_add(1);
+        self.latch = false;
+    }
 
-        let foreground_color = 0xFFFFFFFF; // White color in RGBA8888 format
-        let background_color = 0xFF0000FF; // Black color in RGBA8888 format
+    fn read_register(&mut self) -> u8 {
+        let data = self.status;
+        // TODO: m_StatusReg = m_FifthSprite;
+        // TODO: check_interrupt();
+        self.latch = false;
+        data
+    }
 
-        if scanline >= ROWS * PATTERN_HEIGHT {
-            return; // Beyond the visible screen area
-        }
-
-        let row = scanline / PATTERN_HEIGHT;
-        let y_within_pattern = scanline % PATTERN_HEIGHT;
-
-        for col in 0..CHARS_PER_ROW {
-            let char_index = self.vram[(row * CHARS_PER_ROW + col) as usize];
-            let pattern_offset = (char_index as u16) * PATTERN_HEIGHT + y_within_pattern;
-            let pattern_line = self.vram[pattern_offset as usize];
-
-            for x_within_pattern in 0..6 {
-                let pixel = (pattern_line >> (7 - x_within_pattern)) & 1;
-                let x = (col * 8 + x_within_pattern) as usize;
-                let y = scanline as usize;
-                self.screen_buffer[y][x] = if pixel == 1 {
-                    foreground_color
-                } else {
-                    background_color
-                };
+    fn write_register(&mut self, data: u8) {
+        if self.latch {
+            self.command = data;
+            // On V9918, the VRAM pointer low gets written right away
+            self.address = (self.address & 0xFF00) | data as u16;
+            self.latch = false;
+        } else {
+            if data & 0x80 == 0 {
+                // Set register
+                let reg = data & 0x07;
+                self.registers[reg as usize] = self.command;
+                // On V9918, the VRAM pointer high gets also written when writing to registers
+                self.address = (self.address & 0x00FF) | ((self.command as u16 & 0x03F) << 8);
+            } else {
+                // Set VRAM pointer
+                self.address = self.address | ((data & 0x3F) as u16) | self.command as u16;
+                // Pre-read VRAM if "writemode = 0"
+                if (data & 0x40) == 0 {
+                    self.status = self.vram[self.address as usize];
+                    self.address = self.address.wrapping_add(1);
+                }
             }
+            self.latch = false;
         }
     }
 }
@@ -82,55 +105,26 @@ impl IoDevice for TMS9918 {
     }
 
     fn read(&mut self, port: u8) -> u8 {
-        trace!("[vdp] Read from VDP port: {:02X}", port);
         match port {
-            0x98 => {
-                // Read from Data port
-                let data = self.vram[self.address_register as usize];
-                self.address_register = self.address_register.wrapping_add(1) & 0x3FFF;
-                data
+            // VRAM Read
+            0x98 => self.read_vram(),
+            // Register read
+            0x99 => self.read_register(),
+            _ => {
+                error!("Invalid port: {:02X}", port);
+                0xFF
             }
-            0x99 => {
-                // Read from Control port (Status register)
-                let status = self.status_register;
-                self.status_register &= !(0x80 | 0x40 | 0x20); // Clear bits 7, 6, and 5
-                self.is_second_write = false; // Reset the write sequence
-                status
-            }
-            _ => 0, // Ignore other ports
         }
     }
 
     fn write(&mut self, port: u8, data: u8) {
+        // writing to data port 0x98
         match port {
-            0x98 => {
-                // Write to Data port
-                trace!(
-                    "[vdp] Write to VRAM[{:04X}] = {:02X}",
-                    self.address_register,
-                    data
-                );
-                self.vram[self.address_register as usize] = data;
-                self.address_register = self.address_register.wrapping_add(1) & 0x3FFF;
+            0x98 => self.write_vram(data),
+            0x99 => self.write_register(data),
+            _ => {
+                error!("Invalid port: {:02X}", port);
             }
-            0x99 => {
-                // Write to Control port
-                trace!("[vdp] Write to VDP control port: {:02X}", data);
-                if self.is_second_write {
-                    // Second write: set high bits of address and command bits
-                    self.address_register =
-                        (self.address_register & 0x00FF) | ((data as u16 & 0x3F) << 8);
-                    self.is_second_write = false;
-
-                    // Handle VDP commands based on the data written (e.g., screen mode change, VRAM access, etc.)
-                    // ...
-                } else {
-                    // First write: set low bits of address and latch data
-                    self.address_register = (self.address_register & 0xFF00) | (data as u16);
-                    self.is_second_write = true;
-                }
-            }
-            _ => {} // Ignore other ports
         }
     }
 }

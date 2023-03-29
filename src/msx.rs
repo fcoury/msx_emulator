@@ -280,11 +280,11 @@ impl Msx {
             }
 
             let mut vdp = self.vdp.borrow_mut();
-            vdp.render_scanline(self.current_scanline);
+            // vdp.render_scanline(self.current_scanline);
 
             self.current_scanline = (self.current_scanline + 1) % 262;
             if self.current_scanline == 0 {
-                self.display.update_screen(&vdp.screen_buffer);
+                // self.display.update_screen(&vdp.screen_buffer);
                 // vdp.render_frame();
             }
         }
