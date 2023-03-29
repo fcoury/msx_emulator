@@ -1850,6 +1850,10 @@ impl Z80 {
                         self.im = 1;
                         self.pc = self.pc.wrapping_add(1);
                     }
+                    0xA3 => {
+                        self.e &= !(1 << 4);
+                        self.pc = self.pc.wrapping_add(1);
+                    }
                     // Add extended opcodes handling here
                     // 0x4A => self.sbc_hl(RegisterPair::BC),
                     // 0x5A => self.sbc_hl(RegisterPair::DE),
