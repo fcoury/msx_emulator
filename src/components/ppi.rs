@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::IoDevice;
 
 pub struct Ppi {
@@ -28,14 +29,6 @@ impl Ppi {
         self.update_caps_led();
     }
 
-    fn is_port_a_input(&self) -> bool {
-        self.control & 0b1000_0000 == 0
-    }
-
-    fn is_port_b_input(&self) -> bool {
-        self.control & 0b10 == 0
-    }
-
     fn update_pulse_signal(&self) {
         // TODO: psg.set_pulse_signal((register_c & 0xa0) > 0);
     }
@@ -55,24 +48,14 @@ impl IoDevice for Ppi {
             0xA8 => {
                 // get primary slot config
                 println!(
-                    "  *** [PPI] Reading from PPI port {:02X} (input? {}) = {:02X}",
-                    port,
-                    self.is_port_a_input(),
-                    self.register_a,
+                    "  *** [PPI] Reading from PPI port {:02X} = {:02X}",
+                    port, self.register_a,
                 );
-                if self.is_port_a_input() {
-                    self.register_a
-                } else {
-                    0xFF
-                }
+                self.register_a
             }
             0xA9 => {
                 // returns the keyboard port
-                if self.is_port_b_input() {
-                    self.register_b
-                } else {
-                    0xFF
-                }
+                self.register_b
             }
             0xAA => {
                 // returns register and flags
@@ -85,6 +68,10 @@ impl IoDevice for Ppi {
 
                 self.register_c
             }
+            0xAB => {
+                // ignored output port
+                0xFF
+            }
             _ => 0xFF,
         }
     }
@@ -93,22 +80,12 @@ impl IoDevice for Ppi {
         match port {
             0xA8 => {
                 // set primary slot config
-                println!(
-                    "  *** [PPI] Writing '{:02X}' to PPI port 0xA8 (output? {})",
-                    value,
-                    !self.is_port_a_input()
-                );
+                println!("  *** [PPI] Writing '{:02X}' to PPI port 0xA8", value);
                 self.register_a = value;
             }
             0xA9 => {
-                println!(
-                    "  *** [PPI] Writing '{:02X}' to PPI port 0xA9 (output? {})",
-                    value,
-                    !self.is_port_a_input()
-                );
-                // if !self.is_port_b_input() {
-                self.register_b = value;
-                // }
+                println!("  *** [PPI] Writing '{:02X}' to PPI port 0xA9", value);
+                // this port is ignored as output -- input only
             }
             0xAA => {
                 println!("  *** [PPI] Writing '{:02X}' to PPI port 0xAA", value);

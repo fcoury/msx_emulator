@@ -1,8 +1,8 @@
 pub mod bus;
 pub mod cpu;
 pub mod display;
-pub mod input;
 pub mod memory;
+pub mod ppi;
 pub mod sound;
 pub mod vdp;
 

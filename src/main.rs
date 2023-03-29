@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 #[allow(unused_imports)]
-use components::{cpu::Z80, input::Ppi, memory::Memory, sound::AY38910, vdp::TMS9918};
+use components::{cpu::Z80, memory::Memory, ppi::Ppi, sound::AY38910, vdp::TMS9918};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::msx::Msx;

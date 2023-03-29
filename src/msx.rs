@@ -4,7 +4,8 @@ use tracing::{debug, info};
 
 use crate::{
     components::{
-        cpu::Z80, display::Display, input::Ppi, memory::Memory, sound::AY38910, vdp::TMS9918,
+        bus::Bus, cpu::Z80, display::Display, memory::Memory, ppi::Ppi, sound::AY38910,
+        vdp::TMS9918,
     },
     open_msx::Client,
     Cli,
@@ -33,13 +34,16 @@ impl Msx {
         let vdp = Rc::new(RefCell::new(TMS9918::new()));
         let psg = Rc::new(RefCell::new(AY38910::new()));
         let ppi = Rc::new(RefCell::new(Ppi::new()));
+        let memory = Memory::new(vdp.clone(), 64 * 1024);
+
+        let mut bus = Bus::new();
+        bus.register_device(vdp.clone());
+        bus.register_device(psg.clone());
+        bus.register_device(ppi);
+
+        let cpu = Z80::new(bus, memory);
 
         let display = Display::new(256, 192);
-
-        let mut cpu = Z80::new(Memory::new(vdp.clone(), 64 * 1024));
-        cpu.register_device(vdp.clone());
-        cpu.register_device(psg.clone());
-        cpu.register_device(ppi);
 
         let mut breakpoints: Vec<u16> = Vec::new();
         for breakpoint in &cli.breakpoint {

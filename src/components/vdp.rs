@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use tracing::trace;
+use tracing::{error, trace};
 
 use super::IoDevice;
 pub struct TMS9918 {
@@ -36,7 +36,9 @@ impl TMS9918 {
         match self.screen_mode {
             0 => self.render_scanline_text_mode(scanline),
             // Add other screen modes here
-            _ => (), // Ignore unsupported screen modes
+            _ => {
+                error!("\nUnsupported screen mode: {}\n", self.screen_mode)
+            }
         }
     }
 

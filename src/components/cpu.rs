@@ -1,10 +1,10 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::fmt;
 
 use tracing::{error, info, trace};
 
 use crate::internal_state::InternalState;
 
-use super::{memory::Memory, IoDevice};
+use super::{bus::Bus, memory::Memory};
 
 // static constexpr byte S_FLAG = 0x80;
 // static constexpr byte Z_FLAG = 0x40;
@@ -27,6 +27,8 @@ pub enum Flag {
 }
 
 pub struct Z80 {
+    pub bus: Bus,
+
     // 8-bit registers
     pub a: u8,
     pub f: u8,
@@ -65,9 +67,6 @@ pub struct Z80 {
     // Memory
     pub memory: Memory,
 
-    // I/O Devices
-    io_devices: Vec<Rc<RefCell<dyn IoDevice + 'static>>>,
-
     // Debug options
     pub max_cycles: Option<u64>,
     pub track_flags: bool,
@@ -95,9 +94,9 @@ impl fmt::Display for Z80 {
 }
 
 impl Z80 {
-    pub fn new(memory: Memory) -> Self {
-        let io_devices: Vec<Rc<RefCell<dyn IoDevice + 'static>>> = vec![];
+    pub fn new(bus: Bus, memory: Memory) -> Self {
         Z80 {
+            bus,
             a: 0xff,
             f: 0xff,
             b: 0xff,
@@ -121,7 +120,6 @@ impl Z80 {
             im: 0,
             interrupt_request: false,
             memory,
-            io_devices,
             halted: false,
             max_cycles: None,
             track_flags: false,
@@ -170,10 +168,6 @@ impl Z80 {
             hl_contents: self.read_byte(self.get_hl()),
             opcode: self.read_byte(self.pc),
         }
-    }
-
-    pub fn register_device(&mut self, device: Rc<RefCell<dyn IoDevice>>) {
-        self.io_devices.push(device);
     }
 
     #[allow(dead_code)]
@@ -1811,14 +1805,7 @@ impl Z80 {
                 let port = self.read_byte(self.pc.wrapping_add(1));
                 trace!("IN A, (0x{:02X})", port);
 
-                for device in &self.io_devices {
-                    if device.borrow().is_valid_port(port) {
-                        let mut device_ref = device.as_ref().borrow_mut();
-                        self.a = device_ref.read(port);
-                        break;
-                    }
-                }
-
+                self.a = self.bus.input(port);
                 self.pc = self.pc.wrapping_add(2);
             }
             0xD3 => {
@@ -1830,14 +1817,7 @@ impl Z80 {
                     self.pc, port, data
                 );
 
-                for device in &self.io_devices {
-                    if device.borrow().is_valid_port(port) {
-                        let mut device_ref = device.as_ref().borrow_mut();
-                        device_ref.write(port, data);
-                        break;
-                    }
-                }
-
+                self.bus.output(port, data);
                 self.pc = self.pc.wrapping_add(2);
             }
 
@@ -2255,13 +2235,13 @@ impl Z80 {
         value
     }
 
-    // CALL and RET
-    fn call(&mut self, address: u16) {
-        let value = self.pc.wrapping_add(2);
-        trace!("CALL 0x{:04X} value=0x{:04X}", address, value);
-        self.push(value);
-        self.pc = address;
-    }
+    // TODO restablish CALL
+    // fn call(&mut self, address: u16) {
+    //     let value = self.pc.wrapping_add(2);
+    //     trace!("CALL 0x{:04X} value=0x{:04X}", address, value);
+    //     self.push(value);
+    //     self.pc = address;
+    // }
 
     fn ret(&mut self) {
         trace!("RET");
