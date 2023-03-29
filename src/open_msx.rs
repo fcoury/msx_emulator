@@ -77,6 +77,12 @@ impl Client {
         let h = self.send("reg h")?.parse()?;
         let l = self.send("reg l")?.parse()?;
         let hl = self.send("reg hl")?.parse()?;
+        let hl_contents = self
+            .send(&format!("debug read memory 0x{:04X}", hl))?
+            .parse()?;
+        let opcode = self
+            .send(&format!("debug read memory 0x{:04X}", pc))?
+            .parse()?;
 
         Ok(InternalState {
             pc,
@@ -90,6 +96,8 @@ impl Client {
             h,
             l,
             hl,
+            hl_contents,
+            opcode,
         })
     }
 

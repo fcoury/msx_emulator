@@ -7,9 +7,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 #[allow(unused_imports)]
-use components::{cpu::Z80, input::Input, memory::Memory, sound::AY38910, vdp::TMS9918};
-use env_logger::Builder;
-use log::LevelFilter;
+use components::{cpu::Z80, input::Ppi, memory::Memory, sound::AY38910, vdp::TMS9918};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::msx::Msx;
 
@@ -36,11 +35,19 @@ pub struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    Builder::new()
-        .filter(Some("msx_emulator::components::cpu"), LevelFilter::Info)
-        .filter(Some("rustyline"), LevelFilter::Info)
-        .filter(None, LevelFilter::Trace)
-        .init();
+    let log_level = "info";
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new(log_level))?,
+        )
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
+    // Builder::new()
+    //     .filter(Some("msx_emulator::components::cpu"), LevelFilter::Info)
+    //     .filter(Some("rustyline"), LevelFilter::Info)
+    //     .filter(None, LevelFilter::Trace)
+    //     .init();
 
     let mut msx = Msx::new(&cli);
     msx.load_bios(cli.rom_path)

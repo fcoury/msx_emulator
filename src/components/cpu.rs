@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fmt, rc::Rc};
 
-use log::{error, info, trace};
+use tracing::{error, info, trace};
 
 use crate::internal_state::InternalState;
 
@@ -112,7 +112,7 @@ impl Z80 {
             e_alt: 0,
             h_alt: 0,
             l_alt: 0,
-            sp: 0xF000,
+            sp: 0xFFFF,
             pc: 0,
             ix: 0,
             iy: 0,
@@ -167,6 +167,8 @@ impl Z80 {
             sp: self.sp,
             pc: self.pc,
             hl: self.get_hl(),
+            hl_contents: self.read_byte(self.get_hl()),
+            opcode: self.read_byte(self.pc),
         }
     }
 
@@ -202,7 +204,7 @@ impl Z80 {
 
         // Fetch and decode the next instruction
         let opcode = self.memory.read_byte(self.pc);
-        info!("PC: 0x{:04X} Opcode: 0x{:02X}", self.pc, opcode);
+        // info!("PC: 0x{:04X} Opcode: 0x{:02X}", self.pc, opcode);
         // trace!(
         //     "A: 0x{:02X} B: 0x{:02X} C: 0x{:02X} F: 0b{:b}",
         //     self.a,
@@ -211,8 +213,6 @@ impl Z80 {
         //     self.f
         // );
 
-        let mut inc_pc = false;
-
         // Execute the instruction
         match opcode {
             0x00 => self.nop(),
@@ -220,7 +220,11 @@ impl Z80 {
                 // RST 0x10
                 trace!("RST");
                 self.rst(0x10);
-                inc_pc = false;
+            }
+            0xE7 => {
+                // RST 20H
+                trace!("RST 20H");
+                self.rst(0x20);
             }
             0x3E => {
                 // LD A, n
@@ -252,6 +256,16 @@ impl Z80 {
                 trace!("LD D, 0x{:02X}", value);
                 self.d = value;
             }
+            0x56 => {
+                // LD D, (HL)
+                trace!("LD D, (HL)");
+                self.d = self.read_byte(self.get_hl());
+            }
+            0x66 => {
+                // LD H, (HL)
+                trace!("LD D, (HL)");
+                self.h = self.read_byte(self.get_hl());
+            }
             0x1E => {
                 // LD E, n
                 self.pc = self.pc.wrapping_add(1);
@@ -265,6 +279,7 @@ impl Z80 {
                 let value = self.memory.read_byte(self.pc);
                 trace!("LD H, 0x{:02X}", value);
                 self.h = value;
+                self.pc = self.pc.wrapping_add(1);
             }
             0x2E => {
                 // LD L, n
@@ -532,7 +547,7 @@ impl Z80 {
                 let value = self.read_byte(self.pc.wrapping_add(1));
                 let hl_address = self.get_hl();
 
-                trace!("LD (HL), 0x{:02X}", value);
+                info!("LD (HL), 0x{:02X}", value);
 
                 self.memory.write_byte(hl_address, value);
                 self.pc = self.pc.wrapping_add(2);
@@ -548,11 +563,33 @@ impl Z80 {
                 self.set_hl(value);
                 self.pc = self.pc.wrapping_add(3);
             }
+            0x2A => {
+                // LD HL, (nn)
+                let low_byte = self.memory.read_byte(self.pc.wrapping_add(1));
+                let high_byte = self.memory.read_byte(self.pc.wrapping_add(2));
+                let addr = u16::from_le_bytes([low_byte, high_byte]);
+                let l = self.memory.read_byte(addr);
+                let h = self.memory.read_byte(addr.wrapping_add(1));
+                self.set_hl(u16::from_le_bytes([l, h]));
+                self.pc = self.pc.wrapping_add(3);
+                trace!("LD HL, (nn)");
+            }
             0xF9 => {
                 // LD SP, HL
                 trace!("LD SP, HL");
                 self.pc = self.pc.wrapping_add(1);
                 self.sp = self.get_hl();
+            }
+            0x31 => {
+                // LD SP, nn
+                let low_byte = self.read_byte(self.pc.wrapping_add(1));
+                let high_byte = self.read_byte(self.pc.wrapping_add(2));
+                let value = u16::from_le_bytes([low_byte, high_byte]);
+
+                trace!("LD SP, 0x{:04X}", value);
+
+                self.sp = value;
+                self.pc = self.pc.wrapping_add(3);
             }
             0x0A => {
                 // LD A, (BC)
@@ -586,6 +623,14 @@ impl Z80 {
                 self.ld_a_hl();
                 trace!("           -> 1. A = 0x{:02X}", self.a);
             }
+            0x01 => {
+                // LD BC, nn
+                self.pc = self.pc.wrapping_add(1);
+                let nn = self.read_word(self.pc);
+                trace!("LD BC, 0x{:04X}", nn);
+                self.set_bc(nn);
+                self.pc = self.pc.wrapping_add(2);
+            }
             0x11 => {
                 // LD DE, nn
                 self.pc = self.pc.wrapping_add(1);
@@ -607,18 +652,23 @@ impl Z80 {
                 self.memory.write_byte(address, self.a);
                 self.pc = self.pc.wrapping_add(3);
             }
+            0x22 => {
+                // LD (nn), HL
+                let address = self.read_word(self.pc.wrapping_add(1));
+                trace!("LD (0x{:04X}), HL", address);
+                self.memory.write_word(address, self.get_hl());
+                self.pc = self.pc.wrapping_add(3);
+            }
             0x10 => {
                 // DJNZ n
-                self.pc = self.pc.wrapping_add(1);
-                let offset = self.read_byte(self.pc) as i8;
-
+                let displacement = self.memory.read_signed_byte(self.pc.wrapping_add(1)) + 2;
                 self.b = self.b.wrapping_sub(1);
 
                 if self.b != 0 {
-                    self.pc = self.pc.wrapping_add(1);
-                    self.pc = self.pc.wrapping_add(offset as u16);
+                    let jump_addr = self.pc.wrapping_add(displacement as u16);
+                    self.pc = jump_addr;
                 } else {
-                    self.pc = self.pc.wrapping_add(1);
+                    self.pc = self.pc.wrapping_add(2);
                 }
             }
             0x3C => {
@@ -651,6 +701,20 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
                 self.e = self.e.wrapping_add(1);
                 self.set_inc_flags(self.e);
+            }
+            0x13 => {
+                // INC DE
+                let de = self.get_de();
+                self.set_de(de.wrapping_add(1));
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0x23 => {
+                // INC HL
+                let hl = self.get_hl();
+                let result = hl.wrapping_add(1);
+
+                self.set_hl(result);
+                self.pc = self.pc.wrapping_add(1);
             }
             0x24 => {
                 // INC H
@@ -712,6 +776,12 @@ impl Z80 {
                 self.l = self.l.wrapping_sub(1);
                 self.set_dec_flags(self.l);
             }
+            0x2B => {
+                // DEC HL
+                let hl = self.get_hl();
+                self.set_hl(hl.wrapping_sub(1));
+                self.pc = self.pc.wrapping_add(1);
+            }
             0x35 => {
                 // DEC (HL)
                 self.pc = self.pc.wrapping_add(1);
@@ -769,6 +839,44 @@ impl Z80 {
                 let immediate_value = self.read_byte(self.pc.wrapping_add(1));
                 self.add_a(immediate_value);
                 self.pc = self.pc.wrapping_add(2);
+            }
+            0x09 => {
+                // ADD HL, BC
+                let hl = self.get_hl();
+                let bc = self.get_bc();
+                let (result, carry) = hl.overflowing_add(bc);
+
+                self.set_hl(result);
+                self.set_flag(Flag::H, (hl & 0x0FFF) + (bc & 0x0FFF) > 0x0FFF);
+                self.set_flag(Flag::C, carry);
+                self.set_flag(Flag::N, false);
+                self.pc = self.pc.wrapping_add(1);
+                trace!("ADD HL, BC");
+            }
+            0x19 => {
+                // ADD HL, DE
+                let hl = self.get_hl();
+                let de = self.get_de();
+                let (result, carry) = hl.overflowing_add(de);
+
+                self.set_hl(result);
+                self.set_flag(Flag::H, (hl & 0x0FFF) + (de & 0x0FFF) > 0x0FFF);
+                self.set_flag(Flag::C, carry);
+                self.set_flag(Flag::N, false);
+                self.pc = self.pc.wrapping_add(1);
+                trace!("ADD HL, DE");
+            }
+            0x29 => {
+                // ADD HL, HL
+                let hl = self.get_hl();
+                let (result, carry) = hl.overflowing_add(hl);
+
+                self.set_hl(result);
+                self.set_flag(Flag::H, (hl & 0x0FFF) + (hl & 0x0FFF) > 0x0FFF);
+                self.set_flag(Flag::C, carry);
+                self.set_flag(Flag::N, false);
+                self.pc = self.pc.wrapping_add(1);
+                trace!("ADD HL, HL");
             }
             0x39 => {
                 // ADD HL, SP
@@ -894,6 +1002,7 @@ impl Z80 {
                 // SUB n
                 trace!("SUB n");
                 let value = self.memory.read_byte(self.pc.wrapping_add(1));
+                info!("SUB n with value: {:#X}", value);
                 self.pc = self.pc.wrapping_add(2);
                 self.sub_a(value);
             }
@@ -1281,14 +1390,95 @@ impl Z80 {
             }
             0xCD => {
                 // CALL nn
-                self.pc = self.pc.wrapping_add(1);
-                let address = self.read_word(self.pc);
-                self.call(address);
+
+                // The current contents of the Program Counter (PC) are pushed onto the top of the external
+                // memory stack. The operands nn are then loaded to the PC to point to the address in memory at which the first op code of a subroutine is to be fetched. At the end of the subroutine,
+                // a RETurn instruction can be used to return to the original program flow by popping the top
+                // of the stack back to the PC. The push is accomplished by first decrementing the current
+                // contents of the Stack Pointer (register pair SP), loading the high-order byte of the PC contents to the memory address now pointed to by the SP; then decrementing SP again, and
+                // loading the low-order byte of the PC contents to the top of stack.
+                // Because this process is a 3-byte instruction, the Program Counter was incremented by
+                // three before the push is executed.
+
+                // self.pc = self.pc.wrapping_add(1);
+                // let address = self.read_word(self.pc);
+                // self.call(address);
+                // CALL nn
+                let low_byte = self.memory.read_byte(self.pc.wrapping_add(1));
+                let high_byte = self.memory.read_byte(self.pc.wrapping_add(2));
+                let target_address = u16::from_le_bytes([low_byte, high_byte]);
+
+                // Push the current PC+3 (return address) onto the stack
+                let return_address = self.pc.wrapping_add(3);
+                let return_address_high = ((return_address >> 8) & 0xFF) as u8;
+                let return_address_low = (return_address & 0xFF) as u8;
+
+                self.sp = self.sp.wrapping_sub(1);
+                self.memory.write_byte(self.sp, return_address_high);
+                self.sp = self.sp.wrapping_sub(1);
+                self.memory.write_byte(self.sp, return_address_low);
+
+                // Jump to the target subroutine address
+                self.pc = target_address;
+                info!("#{:04X} - CALL {:04X}", self.pc, target_address);
             }
             0xC9 => {
                 // RET
                 self.ret();
-                inc_pc = false;
+            }
+            0xC8 => {
+                // RET Z
+                if self.get_flag(Flag::Z) {
+                    self.ret();
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                }
+            }
+            0xD8 => {
+                // RET C
+                if self.get_flag(Flag::C) {
+                    self.ret();
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                }
+            }
+            0xC0 => {
+                // RET NZ
+                if !self.get_flag(Flag::Z) {
+                    self.ret();
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                }
+            }
+            0xD0 => {
+                // RET NC
+                if !self.get_flag(Flag::C) {
+                    self.ret();
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                }
+            }
+            0xF8 => {
+                // RET M
+                if self.get_flag(Flag::S) {
+                    self.ret();
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                }
+            }
+            0xF0 => {
+                // RET P
+                if !self.get_flag(Flag::S) {
+                    let low_byte = self.memory.read_byte(self.sp);
+                    self.sp = self.sp.wrapping_add(1);
+                    let high_byte = self.memory.read_byte(self.sp);
+                    self.sp = self.sp.wrapping_add(1);
+                    self.pc = u16::from_le_bytes([low_byte, high_byte]);
+                    trace!("RET P");
+                } else {
+                    self.pc = self.pc.wrapping_add(1);
+                    trace!("NOP (RET P not taken)");
+                }
             }
             0xC5 => {
                 // PUSH BC
@@ -1313,7 +1503,6 @@ impl Z80 {
                 trace!("PUSH AF");
                 self.pc = self.pc.wrapping_add(1);
                 self.push(self.get_af());
-                inc_pc = false;
             }
 
             0xC1 => {
@@ -1322,7 +1511,6 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.pop();
                 self.set_bc(value);
-                inc_pc = false;
             }
             0xD1 => {
                 // POP DE
@@ -1342,11 +1530,21 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.pop();
                 self.set_af(value);
-                inc_pc = false;
             }
+            0xF2 => {
+                // JP P, nn
+                let addr = self.read_word(self.pc.wrapping_add(1));
+                if !self.get_flag(Flag::S) {
+                    self.pc = addr;
+                    trace!("JP P, 0x{:04X}", addr);
+                } else {
+                    self.pc = self.pc.wrapping_add(3);
+                    trace!("JP P, 0x{:04X} (not taken)", addr);
+                }
+            }
+
             0xC2 | 0xC3 | 0xCA | 0xD2 | 0xDA | 0xFA => {
                 // JP cc, nn
-                inc_pc = false;
                 let condition = match opcode {
                     0xC2 => !self.check_flag(Flag::Z), // JP NZ, nn
                     0xCA => self.check_flag(Flag::Z),  // JP Z, nn
@@ -1358,7 +1556,7 @@ impl Z80 {
                 };
 
                 let address = self.read_word(self.pc.wrapping_add(1));
-                trace!("JP cc, 0x{:04X} = {}", address, condition);
+                info!("JP cc, 0x{:04X} = {}", address, condition);
 
                 self.pc = self.pc.wrapping_add(3);
 
@@ -1413,10 +1611,26 @@ impl Z80 {
                     self.pc = (self.pc as i16 + offset as i16) as u16;
                 }
             }
+            0x0F => {
+                // RRC A
+                let a = self.a;
+                let carry = a & 0x01 != 0;
+                let result = (a >> 1) | ((carry as u8) << 7);
+
+                self.a = result;
+                self.set_flag(Flag::S, result & 0x80 != 0);
+                self.set_flag(Flag::Z, result == 0);
+                self.set_flag(Flag::H, false);
+                self.set_flag(Flag::P, result.count_ones() % 2 == 0);
+                self.set_flag(Flag::N, false);
+                self.set_flag(Flag::C, carry);
+
+                self.pc = self.pc.wrapping_add(1);
+                trace!("RRC A");
+            }
             0xCB => {
                 // Read extended opcode and execute it
                 let extended_opcode = self.read_byte(self.pc.wrapping_add(1));
-                inc_pc = false;
 
                 match extended_opcode {
                     0x00..=0x1F => {
@@ -1428,6 +1642,26 @@ impl Z80 {
                         let carry = (value & 0x80) != 0;
 
                         let result = (value << 1) | (carry as u8);
+                        self.set_register_by_index(reg_index, result);
+
+                        self.set_flag(Flag::S, result & 0x80 != 0);
+                        self.set_flag(Flag::Z, result == 0);
+                        self.set_flag(Flag::H, false);
+                        self.set_flag(Flag::P, result.count_ones() % 2 == 0);
+                        self.set_flag(Flag::N, false);
+                        self.set_flag(Flag::C, carry);
+
+                        self.pc = self.pc.wrapping_add(2);
+                    }
+                    0x28..=0x2F => {
+                        // SRA r
+                        let reg_index = extended_opcode & 0x07;
+
+                        trace!("SRA {}", reg_index);
+                        let value = self.get_register_by_index(reg_index);
+                        let carry = (value & 0x01) != 0;
+
+                        let result = (value >> 1) | (value & 0x80);
                         self.set_register_by_index(reg_index, result);
 
                         self.set_flag(Flag::S, result & 0x80 != 0);
@@ -1537,6 +1771,29 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(2);
             }
 
+            // Extended opcodes
+            0xED => {
+                self.pc = self.pc.wrapping_add(1);
+                let extended_opcode = self.memory.read_byte(self.pc);
+
+                match extended_opcode {
+                    0xB0 => self.ldi(),
+                    0x56 => {
+                        self.im = 1;
+                        self.pc = self.pc.wrapping_add(1);
+                    }
+                    // Add extended opcodes handling here
+                    // 0x4A => self.sbc_hl(RegisterPair::BC),
+                    // 0x5A => self.sbc_hl(RegisterPair::DE),
+                    // 0x6A => self.sbc_hl(RegisterPair::HL),
+                    // 0x7A => self.sbc_hl(RegisterPair::SP),
+                    // ... (other opcodes)
+                    _ => {
+                        self.report_unknown("Unhandled extended opcode", opcode);
+                    }
+                }
+            }
+
             // Interrupts
             // EI
             0xFB => {
@@ -1551,12 +1808,9 @@ impl Z80 {
                 self.iff1 = false;
             }
 
-            _ => panic!("Unhandled opcode: {:02X}", opcode),
-        }
-
-        // Increment the program counter
-        if inc_pc {
-            self.pc = self.pc.wrapping_add(1);
+            _ => {
+                self.report_unknown("Unhandled opcode", opcode);
+            }
         }
 
         if self.track_flags && self.f != self.last_f {
@@ -1568,6 +1822,32 @@ impl Z80 {
             );
             self.last_f = self.f;
         }
+    }
+
+    fn report_unknown(&self, message: &str, opcode: u8) {
+        // let prev_10_bytes = self
+        //     .memory
+        //     .data
+        //     .iter()
+        //     .rev()
+        //     .skip(self.memory.data.len() - self.pc as usize)
+        //     .take(10)
+        //     .map(|b| format!("{:02X}", b))
+        //     .collect::<Vec<String>>()
+        //     .join(" ");
+        let next_10_bytes = self
+            .memory
+            .data
+            .iter()
+            .skip(self.pc as usize)
+            .take(10)
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<String>>()
+            .join(" ");
+        panic!(
+            "{} at {:04X}: {:02X} -- lookahead: {}",
+            message, self.pc, opcode, next_10_bytes
+        );
     }
 
     fn add_a(&mut self, value: u8) {
@@ -1664,9 +1944,7 @@ impl Z80 {
     }
 
     fn cp(&mut self, value: u8) {
-        println!("Current A = {:02X}", self.a);
         let result = self.a.wrapping_sub(value);
-        println!("Result = {:02X}", result);
 
         self.set_flag(Flag::S, result & 0x80 != 0);
         self.set_flag(Flag::Z, result == 0);
@@ -1687,9 +1965,11 @@ impl Z80 {
 
     // Helper function to set flags for DEC
     fn set_dec_flags(&mut self, value: u8) {
+        self.set_flag(Flag::S, value & 0x80 != 0);
         self.set_flag(Flag::Z, value == 0);
-        self.set_flag(Flag::N, true);
         self.set_flag(Flag::H, (value & 0x0F) == 0x0F);
+        self.set_flag(Flag::P, value == 0x80);
+        self.set_flag(Flag::N, true);
     }
 
     pub fn set_flag(&mut self, flag: Flag, value: bool) {
@@ -1848,6 +2128,23 @@ impl Z80 {
     fn ld_de_a(&mut self) {
         let address = self.get_de();
         self.memory.write_byte(address, self.a);
+    }
+
+    fn ldi(&mut self) {
+        let src = self.get_hl();
+        let dest = self.get_de();
+        let value = self.memory.read_byte(src);
+        self.memory.write_byte(dest, value);
+
+        self.set_hl(src.wrapping_add(1));
+        self.set_de(dest.wrapping_add(1));
+        self.set_bc(self.get_bc().wrapping_sub(1));
+
+        // Set or reset the P/V flag based on the BC register value
+        self.set_flag(Flag::P, self.get_bc() != 0);
+
+        // Reset the N flag
+        self.set_flag(Flag::N, false);
     }
 
     fn inc_hl(&mut self) {

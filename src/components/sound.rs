@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use log::trace;
+use tracing::trace;
 
 use super::IoDevice;
 
@@ -26,13 +26,13 @@ impl AY38910 {
 
 impl IoDevice for AY38910 {
     fn is_valid_port(&self, port: u8) -> bool {
-        matches!(port, 0xA0 | 0xA1 | 0xAB)
+        matches!(port, 0xA0 | 0xA1)
     }
 
     fn read(&mut self, port: u8) -> u8 {
         match port {
             0xA0 => self.selected_register,
-            0xA1 | 0xAB => self.registers[self.selected_register as usize],
+            0xA1 => self.registers[self.selected_register as usize],
             _ => 0,
         }
     }
@@ -43,7 +43,7 @@ impl IoDevice for AY38910 {
                 trace!("[psg] Selecting register {:02X}", data);
                 self.selected_register = data & 0x0F;
             }
-            0xA1 | 0xAB => {
+            0xA1 => {
                 trace!(
                     "[psg] Writing {:02X} to register {:02X}",
                     data,

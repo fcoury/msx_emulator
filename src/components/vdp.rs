@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use log::trace;
+use tracing::trace;
 
 use super::IoDevice;
 pub struct TMS9918 {

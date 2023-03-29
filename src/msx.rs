@@ -1,9 +1,11 @@
 use std::{cell::RefCell, fs::File, io::Read, path::PathBuf, rc::Rc};
 
-use log::info;
+use tracing::{debug, info};
 
 use crate::{
-    components::{cpu::Z80, display::Display, memory::Memory, sound::AY38910, vdp::TMS9918},
+    components::{
+        cpu::Z80, display::Display, input::Ppi, memory::Memory, sound::AY38910, vdp::TMS9918,
+    },
     open_msx::Client,
     Cli,
 };
@@ -30,12 +32,14 @@ impl Msx {
     pub fn new(cli: &Cli) -> Self {
         let vdp = Rc::new(RefCell::new(TMS9918::new()));
         let psg = Rc::new(RefCell::new(AY38910::new()));
+        let ppi = Rc::new(RefCell::new(Ppi::new()));
 
         let display = Display::new(256, 192);
 
         let mut cpu = Z80::new(Memory::new(vdp.clone(), 64 * 1024));
         cpu.register_device(vdp.clone());
         cpu.register_device(psg.clone());
+        cpu.register_device(ppi);
 
         let mut breakpoints: Vec<u16> = Vec::new();
         for breakpoint in &cli.breakpoint {
@@ -102,6 +106,7 @@ impl Msx {
         self.cpu.track_flags = self.track_flags;
 
         let mut rl = rustyline::DefaultEditor::new()?;
+        let mut stop_next = false;
 
         'running: loop {
             // Handle input events
@@ -110,17 +115,36 @@ impl Msx {
                 #[allow(clippy::single_match)]
                 match event {
                     Event::Quit { .. } => break 'running,
+                    Event::KeyDown { keycode, .. } => match keycode {
+                        Some(sdl2::keyboard::Keycode::D) => {
+                            let our_status = self.cpu.get_internal_state();
+
+                            // println!(" opcode: {:#04X}", last_opcode);
+                            // println!(" opcode: {:#04X}", self.cpu.memory.read_byte(self.cpu.pc));
+                            println!("   ours: {}", our_status);
+
+                            if let Some(client) = &mut client {
+                                let emu_status = client.get_status()?;
+                                println!("openMSX: {}", emu_status);
+                            }
+                        }
+                        Some(sdl2::keyboard::Keycode::Q) => {
+                            println!("Ê!");
+                            break 'running;
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
 
             let last_opcode = self.cpu.memory.read_byte(self.cpu.pc);
-            println!(
+            debug!(
                 "running pc = {:#06X} opcode = {:#04X}",
                 self.cpu.pc, last_opcode
             );
             self.cpu.execute_cycle();
-            println!(
+            debug!(
                 "    ran pc = {:#06X} opcode = {:#04X}",
                 self.cpu.pc,
                 self.cpu.memory.read_byte(self.cpu.pc)
@@ -149,7 +173,11 @@ impl Msx {
                 stop = true;
             }
 
-            if stop {
+            if stop || stop_next {
+                if stop_next {
+                    println!("Stepped to {:#06X}", self.cpu.pc);
+                }
+                stop_next = false;
                 let mut quit = false;
                 loop {
                     let readline = rl.readline(">> ");
@@ -179,17 +207,15 @@ impl Msx {
                         }
 
                         if command == "d" {
+                            let our_status = self.cpu.get_internal_state();
+
+                            // println!(" opcode: {:#04X}", last_opcode);
+                            // println!(" opcode: {:#04X}", self.cpu.memory.read_byte(self.cpu.pc));
+                            println!("   ours: {}", our_status);
+
                             if let Some(client) = &mut client {
                                 let emu_status = client.get_status()?;
-                                let our_status = self.cpu.get_internal_state();
-
-                                println!(" opcode: {:#04X}", last_opcode);
-                                println!(
-                                    " opcode: {:#04X}",
-                                    self.cpu.memory.read_byte(self.cpu.pc)
-                                );
                                 println!("openMSX: {}", emu_status);
-                                println!("   ours: {}", our_status);
                             }
                         }
 
@@ -203,12 +229,35 @@ impl Msx {
                                 if let Some(client) = &mut client {
                                     let emu_status = client
                                         .send(&format!("debug read memory 0x{:04X}", address))?;
-                                    let value = u8::from_str_radix(&emu_status, 8).unwrap();
+                                    println!("emu_status: {}", emu_status);
+                                    let value = emu_status.parse::<u8>()?;
                                     info!("openMSX: {:#04X}", value);
                                 }
 
                                 info!("   ours: {:#04X}", our_status);
                             }
+                        }
+
+                        if command.starts_with("memset ") {
+                            let command = command.replace("memset ", "");
+                            let command = command.split(' ').collect::<Vec<&str>>();
+                            if command[0].starts_with("0x") {
+                                let address = u16::from_str_radix(&command[0][2..], 16).unwrap();
+                                let value = u8::from_str_radix(&command[1][2..], 16).unwrap();
+                                self.cpu.memory.write_byte(address, value);
+
+                                if let Some(client) = &mut client {
+                                    client.send(&format!(
+                                        "debug write memory 0x{:04X} 0x{:02X}",
+                                        address, value
+                                    ))?;
+                                }
+                            }
+                        }
+
+                        if command == "step" || command == "n" {
+                            stop_next = true;
+                            break;
                         }
 
                         if command.starts_with("cont") {
@@ -230,7 +279,10 @@ impl Msx {
             vdp.render_scanline(self.current_scanline);
 
             self.current_scanline = (self.current_scanline + 1) % 262;
-            self.display.update_screen(&vdp.screen_buffer);
+            if self.current_scanline == 0 {
+                self.display.update_screen(&vdp.screen_buffer);
+                // vdp.render_frame();
+            }
         }
 
         if let Some(client) = &mut client {

@@ -16,6 +16,10 @@ pub struct InternalState {
     pub sp: u16,
     pub pc: u16,
     pub hl: u16,
+
+    // contents
+    pub hl_contents: u8,
+    pub opcode: u8,
 }
 
 impl fmt::Display for InternalState {
@@ -37,8 +41,8 @@ impl fmt::Display for InternalState {
         // )
         write!(
             f,
-            "#{:04X} - A: #{:02X} B: #{:02X} C: #{:02X} D: #{:02X} E: #{:02X} H: #{:02X} L: #{:02X} - HL: #{:04X} - {}",
-            self.pc, self.a, self.b, self.c, self.d, self.e, self.h, self.l, self.hl, flags
+            "#{:04X} #{:02X} - A: #{:02X} B: #{:02X} C: #{:02X} D: #{:02X} E: #{:02X} H: #{:02X} L: #{:02X} - HL: #{:04X}(#{:02X}) SP: #{:04X} - {}",
+            self.pc, self.opcode, self.a, self.b, self.c, self.d, self.e, self.h, self.l, self.hl, self.hl_contents, self.sp, flags
         )
     }
 }

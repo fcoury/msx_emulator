@@ -4,29 +4,37 @@ use super::{vdp::TMS9918, IoDevice};
 
 pub struct Memory {
     vdp: Rc<RefCell<TMS9918>>,
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl Memory {
     pub fn new(vdp: Rc<RefCell<TMS9918>>, size: usize) -> Self {
-        Memory {
-            vdp,
-            data: vec![0; size],
-        }
+        let mut data = vec![0xFF; size];
+
+        // fill the addresses from FD9A through FFC9 with C9
+        (0xFD9A..=0xFFC9).for_each(|i| {
+            data[i] = 0xC9;
+        });
+
+        Memory { vdp, data }
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
         match address {
+            // BIOS ROM
             0x0000..=0x3FFF => self.data[address as usize],
+            // Cartidge Slot 1
             0x4000..=0x7FFF => self.data[address as usize],
-            // 0x8000..=0xBFFF => self.data[address as usize],
-            0x8000..=0xBFFF => 0xFF,
-            0xC000..=0xDFFF => self.data[address as usize],
-            0xE000..=0xFFFF => {
-                // Implement I/O read behavior here
-                0xFF // Return a default value for now
-            }
+            // Cartidge Slot 2
+            0x8000..=0xBFFF => self.data[address as usize],
+            // Main RAM
+            0xC000..=0xFFFF => self.data[address as usize],
         }
+    }
+
+    pub fn read_signed_byte(&self, addr: u16) -> i8 {
+        let unsigned_byte = self.read_byte(addr);
+        unsigned_byte as i8
     }
 
     pub fn write_byte(&mut self, address: u16, value: u8) {
@@ -59,7 +67,7 @@ impl Memory {
             }
             0xC000..=0xDFFF => self.data[address as usize] = value,
             0xE000..=0xFFFF => {
-                // Implement I/O write behavior here
+                self.data[address as usize] = value;
             }
         }
     }
@@ -73,14 +81,6 @@ impl Memory {
 
         Ok(())
     }
-
-    // pub fn read_byte(&self, address: u16) -> u8 {
-    //     self.data[address as usize]
-    // }
-
-    // pub fn write_byte(&mut self, address: u16, value: u8) {
-    //     self.data[address as usize] = value;
-    // }
 
     pub fn write_word(&mut self, address: u16, value: u16) {
         let low_byte = (value & 0x00FF) as u8;
