@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use tracing::error;
+use tracing::{error, trace};
 
 use super::IoDevice;
 
@@ -59,7 +59,7 @@ impl TMS9918 {
     }
 
     fn write_vram(&mut self, data: u8) {
-        println!("Write VRAM {:04X}: {:02X}", self.address, data);
+        trace!("Write VRAM {:04X}: {:02X}", self.address, data);
         if self.address < 0x4000 {
             self.vram[self.address as usize] = data;
         }
