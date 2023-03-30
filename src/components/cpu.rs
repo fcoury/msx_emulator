@@ -2,6 +2,7 @@ use std::fmt;
 
 use tracing::{error, info, trace};
 
+use crate::components::IoDevice;
 use crate::internal_state::InternalState;
 
 use super::{bus::Bus, memory::Memory};
@@ -40,6 +41,8 @@ pub struct Z80 {
     pub l: u8,
 
     // Alternate registers
+    pub a_alt: u8,
+    pub f_alt: u8,
     pub b_alt: u8,
     pub c_alt: u8,
     pub d_alt: u8,
@@ -105,6 +108,8 @@ impl Z80 {
             e: 0xff,
             h: 0xff,
             l: 0xff,
+            a_alt: 0,
+            f_alt: 0,
             b_alt: 0,
             c_alt: 0,
             d_alt: 0,
@@ -214,6 +219,11 @@ impl Z80 {
                 // RST 0x10
                 trace!("RST");
                 self.rst(0x10);
+            }
+            0xDF => {
+                // RST 0x18
+                trace!("RST 18h");
+                self.rst(0x18);
             }
             0xE7 => {
                 // RST 20H
@@ -601,6 +611,7 @@ impl Z80 {
                 self.sp = value;
                 self.pc = self.pc.wrapping_add(3);
             }
+
             0x0A => {
                 // LD A, (BC)
                 self.pc = self.pc.wrapping_add(1);
@@ -797,6 +808,12 @@ impl Z80 {
                 let bc = self.get_bc();
                 self.set_bc(bc.wrapping_sub(1));
                 self.pc = self.pc.wrapping_add(1);
+            }
+            0x1B => {
+                // DEC DE
+                let de = self.get_de().wrapping_sub(1);
+                self.set_de(de);
+                trace!("DEC DE");
             }
             0x35 => {
                 // DEC (HL)
@@ -1342,6 +1359,21 @@ impl Z80 {
                         let value = self.memory.read_byte(self.get_ix_d(d as u8));
                         self.cp(value);
                     }
+                    0x21 => {
+                        // LD IX, nn
+                        let low_byte = self.memory.read_byte(self.pc);
+                        let high_byte = self.memory.read_byte(self.pc);
+                        self.ix = u16::from_le_bytes([low_byte, high_byte]);
+                        trace!("LD IX, {:04X}", self.ix);
+                    }
+                    0xE5 => {
+                        // PUSH IX
+                        self.push(self.iy);
+                    }
+                    0xE1 => {
+                        // POP IX
+                        self.ix = self.pop();
+                    }
                     _ => {
                         panic!("Unknown opcode (CP (IX+d)) 0xDD 0x{:02X}", opcode);
                     }
@@ -1359,8 +1391,24 @@ impl Z80 {
                         let value = self.memory.read_byte(self.get_iy_d(d as u8));
                         self.cp(value);
                     }
+                    0x2A => {
+                        // LD IX, (nn)
+                        let low_addr = self.memory.read_byte(self.pc);
+                        let high_addr = self.memory.read_byte(self.pc);
+                        let address = u16::from_le_bytes([low_addr, high_addr]);
+                        self.ix = self.memory.read_word(address);
+                        trace!("LD IX, {:04X}", self.ix);
+                    }
+                    0xE5 => {
+                        // PUSH IY
+                        self.push(self.iy);
+                    }
+                    0xE1 => {
+                        // POP IY
+                        self.iy = self.pop();
+                    }
                     _ => {
-                        panic!("Unknown opcode (CP (IY+d)) 0xDD 0x{:02X}", opcode);
+                        panic!("Unknown opcode (CP (IY+d)) 0xFD 0x{:02X}", opcode);
                     }
                 }
             }
@@ -1402,6 +1450,13 @@ impl Z80 {
 
                 self.pc = self.pc.wrapping_add(1);
                 trace!("EX (SP), HL");
+            }
+            0x08 => {
+                // EX AF, AF'
+                std::mem::swap(&mut self.a, &mut self.a_alt);
+                std::mem::swap(&mut self.f, &mut self.f_alt);
+                self.pc = self.pc.wrapping_add(1);
+                trace!("EX AF, AF'");
             }
             0xD9 => {
                 // EXX
@@ -1806,6 +1861,12 @@ impl Z80 {
                 trace!("IN A, (0x{:02X})", port);
 
                 self.a = self.bus.input(port);
+
+                error!(
+                    "PC = #{:04X} IN (#{:02X}), A=0x{:02X}",
+                    self.pc, port, self.a
+                );
+
                 self.pc = self.pc.wrapping_add(2);
             }
             0xD3 => {
@@ -1829,12 +1890,21 @@ impl Z80 {
                 match extended_opcode {
                     0xB0 => self.ldi(),
                     0x56 => {
+                        // IM 1
                         self.im = 1;
                         self.pc = self.pc.wrapping_add(1);
                     }
                     0xA3 => {
-                        self.e &= !(1 << 4);
-                        self.pc = self.pc.wrapping_add(1);
+                        // OUTI
+                        let value = self.memory.read_byte(self.get_hl());
+                        let port = self.c;
+                        self.bus.output(port, value);
+                        let hl = self.get_hl().wrapping_add(1);
+                        self.set_hl(hl);
+                        let b = self.b.wrapping_sub(1);
+                        self.b = b;
+                        self.set_flag(Flag::P, b != 0);
+                        trace!("OUTI");
                     }
                     // Add extended opcodes handling here
                     // 0x4A => self.sbc_hl(RegisterPair::BC),

@@ -5,12 +5,17 @@ mod open_msx;
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 #[allow(unused_imports)]
 use components::{cpu::Z80, memory::Memory, ppi::Ppi, sound::AY38910, vdp::TMS9918};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::msx::Msx;
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    Compile { path: PathBuf },
+}
 
 #[derive(Parser, Debug)]
 pub struct Cli {
@@ -30,6 +35,9 @@ pub struct Cli {
 
     #[clap(short = 'm', long)]
     break_on_mismatch: bool,
+
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
 fn main() -> anyhow::Result<()> {

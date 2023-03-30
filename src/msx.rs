@@ -1,5 +1,6 @@
 use std::{cell::RefCell, fs::File, io::Read, path::PathBuf, rc::Rc};
 
+use sdl2::keyboard::Keycode;
 use tracing::{debug, info};
 
 use crate::{
@@ -120,7 +121,7 @@ impl Msx {
                 match event {
                     Event::Quit { .. } => break 'running,
                     Event::KeyDown { keycode, .. } => match keycode {
-                        Some(sdl2::keyboard::Keycode::D) => {
+                        Some(Keycode::D) => {
                             let our_status = self.cpu.get_internal_state();
 
                             // println!(" opcode: {:#04X}", last_opcode);
@@ -132,7 +133,19 @@ impl Msx {
                                 println!("openMSX: {}", emu_status);
                             }
                         }
-                        Some(sdl2::keyboard::Keycode::Q) => {
+
+                        Some(Keycode::V) => {
+                            let vdp = self.vdp.borrow();
+                            info!("VDP Dump");
+                            info!("  registers: {:#04X?}", vdp.registers);
+                            info!("  status: {:#02X}", vdp.status);
+                            info!("  address: {:#04X}", vdp.address);
+                            info!("  command: {:#02X}", vdp.command);
+                        }
+                        Some(Keycode::H) => {
+                            hexdump::hexdump(&self.vdp.borrow().vram);
+                        }
+                        Some(Keycode::Q) => {
                             println!("Ê!");
                             break 'running;
                         }

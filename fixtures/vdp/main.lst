@@ -1,0 +1,48 @@
+01   0000             ; TestVDP.asm
+02   0000             
+03   0000             ; Initialize VDP constants
+04   0000             VDP_WRITE_REG    EQU 0x99
+05   0000             VDP_WRITE_VRAM   EQU 0x98
+06   0000             VDP_READ_VRAM    EQU 0x98
+07   0000             
+08   0000             ; Initialize data
+09   0000 3E 0F           LD A, 0x0F
+10   0002 06 22           LD B, 0x22
+11   0004 0E 55           LD C, 0x55
+12   0006 16 88           LD D, 0x88
+13   0008             
+14   0008             ; Set screen mode to Screen 2
+15   0008 3E 86           LD A, 0x80 | 0x06
+16   000A D3 99           OUT (VDP_WRITE_REG), A
+17   000C 3E 81           LD A, 0x81 | 0x00
+18   000E D3 99           OUT (VDP_WRITE_REG), A
+19   0010             
+20   0010             ; Initialize VRAM address to 0x0000
+21   0010 21 00 00        LD HL, 0x0000
+22   0013 7C              LD A, H
+23   0014 D3 98           OUT (VDP_WRITE_VRAM), A
+24   0016 7D              LD A, L
+25   0017 D3 98           OUT (VDP_WRITE_VRAM), A
+26   0019             
+27   0019             ; Fill VRAM with a pattern
+28   0019 06 FF           LD B, 0xFF
+29   001B 0E 99           LD C, 0x99
+30   001D 11 00 08        LD DE, 0x0800
+31   0020             FillVRAM:
+32   0020 ED A3           OUTI
+33   0022 1B              DEC DE
+34   0023 7A              LD A, D
+35   0024 B3              OR E
+36   0025                 ; JP NZ, FillVRAM
+37   0025 76              HALT
+38   0026             
+39   0026             ; Read data back from VRAM
+40   0026 21 00 00        LD HL, 0x0000
+41   0029 7C              LD A, H
+42   002A D3 98           OUT (VDP_READ_VRAM), A
+43   002C 7D              LD A, L
+44   002D D3 98           OUT (VDP_READ_VRAM), A
+45   002F DB 98           IN A, (VDP_READ_VRAM)
+46   0031 32 00 80        LD (0x8000), A
+47   0034             
+48   0034 76              HALT

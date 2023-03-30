@@ -59,6 +59,7 @@ impl TMS9918 {
     }
 
     fn write_vram(&mut self, data: u8) {
+        println!("Write VRAM {:04X}: {:02X}", self.address, data);
         self.vram[self.address as usize] = data;
         self.address = self.address.wrapping_add(1);
         self.latch = false;
@@ -73,28 +74,36 @@ impl TMS9918 {
     }
 
     fn write_register(&mut self, data: u8) {
+        println!("Write register: {:02X} latch: {}", data, self.latch);
         if self.latch {
-            self.command = data;
-            // On V9918, the VRAM pointer low gets written right away
-            self.address = (self.address & 0xFF00) | data as u16;
-            self.latch = false;
-        } else {
             if data & 0x80 == 0 {
                 // Set register
+                println!("Set register: {:02X}", data);
                 let reg = data & 0x07;
+                println!("Set register: {:02X}", reg);
                 self.registers[reg as usize] = self.command;
                 // On V9918, the VRAM pointer high gets also written when writing to registers
                 self.address = (self.address & 0x00FF) | ((self.command as u16 & 0x03F) << 8);
             } else {
                 // Set VRAM pointer
+                println!("Set VRAM pointer: {:02X}", data);
+                println!("Address before: {:04X}", self.address);
                 self.address = self.address | ((data & 0x3F) as u16) | self.command as u16;
                 // Pre-read VRAM if "writemode = 0"
                 if (data & 0x40) == 0 {
                     self.status = self.vram[self.address as usize];
                     self.address = self.address.wrapping_add(1);
                 }
+                println!("Address after: {:04X}", self.address);
             }
             self.latch = false;
+        } else {
+            self.command = data;
+            // On V9918, the VRAM pointer low gets written right away
+            println!("Address before: {:04X}", self.address);
+            self.address = (self.address & 0xFF00) | data as u16;
+            println!("Address after: {:04X}", self.address);
+            self.latch = true;
         }
     }
 }
