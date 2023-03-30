@@ -51,6 +51,13 @@ impl TMS9918 {
         }
     }
 
+    // Pattern Table Base Address = register 2 * 0x400
+    pub fn pattern_table(&self) -> &[u8] {
+        let base_address = self.registers[2] as usize * 0x400;
+        let pattern_table_size = 256 * 8; // Assuming 256 characters, 8 bytes per character
+        &self.vram[base_address..(base_address + pattern_table_size)]
+    }
+
     fn read_vram(&mut self) -> u8 {
         let data = self.vram[self.address as usize];
         self.address = self.address.wrapping_add(1);

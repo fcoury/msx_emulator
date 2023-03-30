@@ -2,6 +2,7 @@ mod components;
 mod internal_state;
 mod msx;
 mod open_msx;
+mod renderer;
 
 use std::path::PathBuf;
 

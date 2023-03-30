@@ -9,6 +9,7 @@ use crate::{
         vdp::TMS9918,
     },
     open_msx::Client,
+    renderer::SDLRenderer,
     Cli,
 };
 
@@ -112,6 +113,8 @@ impl Msx {
 
         let mut rl = rustyline::DefaultEditor::new()?;
         let mut stop_next = false;
+
+        let mut renderer = SDLRenderer::new(self.vdp.clone());
 
         'running: loop {
             // Handle input events
@@ -292,13 +295,10 @@ impl Msx {
                 break;
             }
 
-            let mut vdp = self.vdp.borrow_mut();
-            // vdp.render_scanline(self.current_scanline);
-
-            self.current_scanline = (self.current_scanline + 1) % 262;
+            self.current_scanline = (self.current_scanline + 1) % 192;
             if self.current_scanline == 0 {
-                // self.display.update_screen(&vdp.screen_buffer);
-                // vdp.render_frame();
+                renderer.draw(0, 0, 40, 24);
+                self.display.update_screen(&renderer.screen_buffer);
             }
         }
 
