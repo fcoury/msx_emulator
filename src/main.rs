@@ -3,6 +3,7 @@ mod internal_state;
 mod msx;
 mod open_msx;
 mod renderer;
+mod utils;
 
 use std::path::PathBuf;
 

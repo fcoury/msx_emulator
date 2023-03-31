@@ -58,6 +58,15 @@ impl TMS9918 {
         &self.vram[base_address..(base_address + pattern_table_size)]
     }
 
+    pub fn vram_read_np(&self, address: usize) -> usize {
+        self.vram[address & 0x3FFF] as usize
+    }
+
+    pub fn get_vertical_scroll(&self) -> usize {
+        // Replace with the correct logic to get the vertical scroll value
+        0
+    }
+
     fn read_vram(&mut self) -> u8 {
         let data = self.vram[self.address as usize];
         self.address = self.address.wrapping_add(1);

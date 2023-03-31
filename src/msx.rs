@@ -9,7 +9,8 @@ use crate::{
         vdp::TMS9918,
     },
     open_msx::Client,
-    renderer::SDLRenderer,
+    renderer::Renderer,
+    utils::hexdump,
     Cli,
 };
 
@@ -114,7 +115,7 @@ impl Msx {
         let mut rl = rustyline::DefaultEditor::new()?;
         let mut stop_next = false;
 
-        let mut renderer = SDLRenderer::new(self.vdp.clone());
+        let mut renderer = Renderer::new(self.vdp.clone());
 
         'running: loop {
             // Handle input events
@@ -136,7 +137,24 @@ impl Msx {
                                 println!("openMSX: {}", emu_status);
                             }
                         }
-
+                        Some(Keycode::P) => {
+                            let vdp = self.vdp.borrow();
+                            let pattern_table = vdp.pattern_table();
+                            println!("Pattern Table:");
+                            for charn in 0..256 {
+                                for charbit in charn * 8..charn * 8 + 8 {
+                                    let byte = pattern_table[charbit];
+                                    for bit in 0..8 {
+                                        let pixel = (byte >> (7 - bit)) & 1;
+                                        print!("{}", if pixel == 1 { "X" } else { " " });
+                                    }
+                                    println!();
+                                }
+                                println!("---");
+                            }
+                            println!("----------------");
+                            let readline = rl.readline(">> ");
+                        }
                         Some(Keycode::V) => {
                             let vdp = self.vdp.borrow();
                             info!("VDP Dump");
@@ -146,7 +164,8 @@ impl Msx {
                             info!("  command: {:#02X}", vdp.command);
                         }
                         Some(Keycode::H) => {
-                            hexdump::hexdump(&self.vdp.borrow().vram);
+                            let s = hexdump(&self.vdp.borrow().vram);
+                            println!("{}", s);
                         }
                         Some(Keycode::Q) => {
                             println!("Ê!");
@@ -297,7 +316,7 @@ impl Msx {
 
             self.current_scanline = (self.current_scanline + 1) % 192;
             if self.current_scanline == 0 {
-                renderer.draw(0, 0, 40, 24);
+                renderer.draw(0, 0, 256, 192);
                 self.display.update_screen(&renderer.screen_buffer);
             }
         }

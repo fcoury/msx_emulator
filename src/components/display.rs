@@ -45,11 +45,11 @@ impl Display {
             .with_lock(None, |buffer: &mut [u8], pitch: usize| {
                 for y in 0..192 {
                     for x in 0..256 {
-                        let screen_offset = (y * 256 + x) * 4;
                         let color_offset = y * 256 + x;
                         let color = screen_buffer[color_offset];
                         let color_bytes = palette[color as usize].to_le_bytes();
-                        buffer[screen_offset..screen_offset + 4].copy_from_slice(&color_bytes);
+                        let offset = y * pitch + x * 4;
+                        buffer[offset..offset + 4].copy_from_slice(&color_bytes);
                     }
                 }
             })
