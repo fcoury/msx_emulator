@@ -11,7 +11,7 @@ use axum::{
 };
 use axum_extra::routing::SpaRouter;
 
-use crate::msx::Msx;
+use crate::{components::instruction::Instruction, msx::Msx};
 
 pub struct Console {
     addr: SocketAddr,
@@ -43,6 +43,7 @@ impl Console {
 }
 
 fn get_status(msx: &Msx) -> Json<serde_json::Value> {
+    let instr = Instruction::parse(&msx.cpu.memory, msx.cpu.pc);
     Json(serde_json::json!({
         "pc": format!("0x{:04X}", msx.cpu.pc),
         "cycles": msx.cpu.cycles,
@@ -55,7 +56,9 @@ fn get_status(msx: &Msx) -> Json<serde_json::Value> {
         "h": format!("0x{:02X}", msx.cpu.h),
         "l": format!("0x{:02X}", msx.cpu.l),
         "hl": format!("0x{:04X}", msx.cpu.get_hl()),
-        "opcode": format!("0x{:02X}", msx.cpu.memory.read_byte(msx.cpu.pc)),
+        "pc": format!("0x{:04X}", msx.cpu.pc),
+        "instruction": instr.name(),
+        "opcode": instr.opcode_with_args(),
     }))
 }
 

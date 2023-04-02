@@ -1064,9 +1064,9 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
             }
             0x95 => {
-                // SUB H
-                trace!("SUB H");
-                self.sub_a(self.h);
+                // SUB L
+                trace!("SUB L");
+                self.sub_a(self.l);
                 self.pc = self.pc.wrapping_add(1);
             }
             0x96 => {
@@ -1403,6 +1403,7 @@ impl Z80 {
                         self.pc = self.pc.wrapping_add(1);
                         let value = self.memory.read_byte(self.get_ix_d(d as u8));
                         self.cp(value);
+                        self.pc = self.pc.wrapping_add(1);
                     }
                     0x21 => {
                         // LD IX, nn
@@ -1410,14 +1411,17 @@ impl Z80 {
                         let high_byte = self.memory.read_byte(self.pc);
                         self.ix = u16::from_le_bytes([low_byte, high_byte]);
                         trace!("LD IX, {:04X}", self.ix);
+                        self.pc = self.pc.wrapping_add(3);
                     }
                     0xE5 => {
                         // PUSH IX
                         self.push(self.iy);
+                        self.pc = self.pc.wrapping_add(1);
                     }
                     0xE1 => {
                         // POP IX
                         self.ix = self.pop();
+                        self.pc = self.pc.wrapping_add(1);
                     }
                     _ => {
                         panic!("Unknown opcode (CP (IX+d)) 0xDD 0x{:02X}", opcode);
@@ -1435,6 +1439,7 @@ impl Z80 {
                         self.pc = self.pc.wrapping_add(1);
                         let value = self.memory.read_byte(self.get_iy_d(d as u8));
                         self.cp(value);
+                        self.pc = self.pc.wrapping_add(1);
                     }
                     0x2A => {
                         // LD IX, (nn)
@@ -1443,14 +1448,17 @@ impl Z80 {
                         let address = u16::from_le_bytes([low_addr, high_addr]);
                         self.ix = self.memory.read_word(address);
                         trace!("LD IX, {:04X}", self.ix);
+                        self.pc = self.pc.wrapping_add(3);
                     }
                     0xE5 => {
                         // PUSH IY
                         self.push(self.iy);
+                        self.pc = self.pc.wrapping_add(1);
                     }
                     0xE1 => {
                         // POP IY
                         self.iy = self.pop();
+                        self.pc = self.pc.wrapping_add(1);
                     }
                     _ => {
                         panic!("Unknown opcode (CP (IY+d)) 0xFD 0x{:02X}", opcode);
@@ -1632,24 +1640,28 @@ impl Z80 {
                 trace!("PUSH BC");
                 self.pc = self.pc.wrapping_add(1);
                 self.push(self.get_bc());
+                self.pc = self.pc.wrapping_add(1);
             }
             0xD5 => {
                 // PUSH DE
                 trace!("PUSH DE");
                 self.pc = self.pc.wrapping_add(1);
                 self.push(self.get_de());
+                self.pc = self.pc.wrapping_add(1);
             }
             0xE5 => {
                 // PUSH HL
                 trace!("PUSH HL");
                 self.pc = self.pc.wrapping_add(1);
                 self.push(self.get_hl());
+                self.pc = self.pc.wrapping_add(1);
             }
             0xF5 => {
                 // PUSH AF
                 trace!("PUSH AF");
                 self.pc = self.pc.wrapping_add(1);
                 self.push(self.get_af());
+                self.pc = self.pc.wrapping_add(1);
             }
 
             0xC1 => {
@@ -1658,18 +1670,21 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.pop();
                 self.set_bc(value);
+                self.pc = self.pc.wrapping_add(1);
             }
             0xD1 => {
                 // POP DE
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.pop();
                 self.set_de(value);
+                self.pc = self.pc.wrapping_add(1);
             }
             0xE1 => {
                 // POP HL
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.pop();
                 self.set_hl(value);
+                self.pc = self.pc.wrapping_add(1);
             }
             0xF1 => {
                 // POP AF
@@ -1677,6 +1692,7 @@ impl Z80 {
                 self.pc = self.pc.wrapping_add(1);
                 let value = self.pop();
                 self.set_af(value);
+                self.pc = self.pc.wrapping_add(1);
             }
             0xF2 => {
                 // JP P, nn

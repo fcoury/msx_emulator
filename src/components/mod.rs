@@ -1,6 +1,7 @@
 pub mod bus;
 pub mod cpu;
 pub mod display;
+pub mod instruction;
 pub mod memory;
 pub mod ppi;
 pub mod sound;
