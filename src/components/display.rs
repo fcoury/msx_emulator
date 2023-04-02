@@ -1,4 +1,4 @@
-// display.rs
+#![allow(dead_code)]
 use sdl2::{pixels::PixelFormatEnum, render::TextureCreator, video::WindowContext};
 
 pub struct Display {

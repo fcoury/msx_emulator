@@ -1,71 +1,72 @@
-use std::{cell::RefCell, fs::File, io::Read, path::PathBuf, rc::Rc};
+use std::{
+    fs::File,
+    io::Read,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 
-use sdl2::keyboard::Keycode;
-use tracing::{debug, info};
+use rustyline::DefaultEditor;
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::{
-    components::{
-        bus::Bus, cpu::Z80, display::Display, memory::Memory, ppi::Ppi, sound::AY38910,
-        vdp::TMS9918,
-    },
+    components::{bus::Bus, cpu::Z80, memory::Memory, sound::AY38910, vdp::TMS9918},
     open_msx::Client,
-    renderer::Renderer,
-    utils::hexdump,
     Cli,
 };
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Msx {
-    cpu: Z80,
-    vdp: Rc<RefCell<TMS9918>>,
-    #[allow(unused)]
-    psg: Rc<RefCell<AY38910>>,
+    pub cpu: Z80,
 
-    display: Display,
+    vdp: TMS9918,
+    psg: AY38910,
 
+    // #[serde(skip)]
+    // display: Option<Display>,
     current_scanline: u16,
 
     // debug options
     pub breakpoints: Vec<u16>,
     pub max_cycles: Option<u64>,
-    open_msx: bool,
-    break_on_mismatch: bool,
+    pub open_msx: bool,
+    pub break_on_mismatch: bool,
     pub track_flags: bool,
 }
 
 impl Msx {
-    pub fn new(cli: &Cli) -> Self {
-        let vdp = Rc::new(RefCell::new(TMS9918::new()));
-        let psg = Rc::new(RefCell::new(AY38910::new()));
-        let ppi = Rc::new(RefCell::new(Ppi::new()));
-        let memory = Memory::new(vdp.clone(), 64 * 1024);
-
-        let mut bus = Bus::new();
-        bus.register_device(vdp.clone());
-        bus.register_device(psg.clone());
-        bus.register_device(ppi);
-
+    pub fn new() -> Self {
+        let bus = Arc::new(RwLock::new(Bus::new()));
+        let memory = Memory::new(bus.clone(), 64 * 1024);
         let cpu = Z80::new(bus, memory);
-
-        let display = Display::new(256, 192);
-
-        let mut breakpoints: Vec<u16> = Vec::new();
-        for breakpoint in &cli.breakpoint {
-            let breakpoint = u16::from_str_radix(&breakpoint[2..], 16).unwrap();
-            breakpoints.push(breakpoint);
-        }
+        // let display = Display::new(256, 192);
 
         Self {
             cpu,
-            vdp,
-            psg,
-            display,
+            // display: Some(display),
             current_scanline: 0,
             max_cycles: None,
-            breakpoints,
-            open_msx: cli.open_msx,
-            break_on_mismatch: cli.break_on_mismatch,
             track_flags: false,
+            vdp: TMS9918::new(),
+            psg: AY38910::new(),
+            open_msx: false,
+            break_on_mismatch: false,
+            breakpoints: Vec::new(),
         }
+    }
+
+    pub fn from_cli(cli: &Cli) -> Self {
+        let mut msx = Self::new();
+        msx.open_msx = cli.open_msx;
+        msx.break_on_mismatch = cli.break_on_mismatch;
+        msx.max_cycles = cli.max_cycles;
+
+        for breakpoint in &cli.breakpoint {
+            let breakpoint = u16::from_str_radix(&breakpoint[2..], 16).unwrap();
+            msx.add_breakpoint(breakpoint);
+        }
+
+        msx
     }
 
     pub fn add_breakpoint(&mut self, address: u16) {
@@ -96,7 +97,10 @@ impl Msx {
     }
 
     pub fn run(&mut self) -> anyhow::Result<()> {
-        let mut event_pump = self.display.sdl_context.event_pump().unwrap();
+        // let Some(display) = self.display else {
+        //     bail!("Display not initialized");
+        // };
+        // let mut event_pump = display.sdl_context.event_pump().unwrap();
 
         info!("OpenMSX: {}", self.open_msx);
         let mut client = if self.open_msx {
@@ -112,82 +116,86 @@ impl Msx {
         self.cpu.max_cycles = self.max_cycles;
         self.cpu.track_flags = self.track_flags;
 
+        #[allow(unused)]
         let mut rl = rustyline::DefaultEditor::new()?;
         let mut stop_next = false;
 
-        let mut renderer = Renderer::new(self.vdp.clone());
+        // let mut renderer = Renderer::new(&self.vdp);
 
-        'running: loop {
+        loop {
+            // 'running: loop {
             // Handle input events
-            for event in event_pump.poll_iter() {
-                use sdl2::event::Event;
-                #[allow(clippy::single_match)]
-                match event {
-                    Event::Quit { .. } => break 'running,
-                    Event::KeyDown { keycode, .. } => match keycode {
-                        Some(Keycode::D) => {
-                            let our_status = self.cpu.get_internal_state();
+            // for event in event_pump.poll_iter() {
+            //     use sdl2::event::Event;
+            //     #[allow(clippy::single_match)]
+            //     match event {
+            //         Event::Quit { .. } => break 'running,
+            //         Event::KeyDown { keycode, .. } => match keycode {
+            //             Some(Keycode::D) => {
+            //                 let our_status = self.cpu.get_internal_state();
 
-                            // println!(" opcode: {:#04X}", last_opcode);
-                            // println!(" opcode: {:#04X}", self.cpu.memory.read_byte(self.cpu.pc));
-                            println!("   ours: {}", our_status);
+            //                 // println!(" opcode: {:#04X}", last_opcode);
+            //                 // println!(" opcode: {:#04X}", self.cpu.memory.read_byte(self.cpu.pc));
+            //                 println!("   ours: {}", our_status);
 
-                            if let Some(client) = &mut client {
-                                let emu_status = client.get_status()?;
-                                println!("openMSX: {}", emu_status);
-                            }
-                        }
-                        Some(Keycode::P) => {
-                            let vdp = self.vdp.borrow();
-                            let pattern_table = vdp.pattern_table();
-                            println!("Pattern Table:");
-                            for charn in 0..256 {
-                                for charbit in charn * 8..charn * 8 + 8 {
-                                    let byte = pattern_table[charbit];
-                                    for bit in 0..8 {
-                                        let pixel = (byte >> (7 - bit)) & 1;
-                                        print!("{}", if pixel == 1 { "X" } else { " " });
-                                    }
-                                    println!();
-                                }
-                                println!("---");
-                            }
-                            println!("----------------");
-                            let readline = rl.readline(">> ");
-                        }
-                        Some(Keycode::V) => {
-                            let vdp = self.vdp.borrow();
-                            info!("VDP Dump");
-                            info!("  registers: {:#04X?}", vdp.registers);
-                            info!("  status: {:#02X}", vdp.status);
-                            info!("  address: {:#04X}", vdp.address);
-                            info!("  command: {:#02X}", vdp.command);
-                        }
-                        Some(Keycode::H) => {
-                            let s = hexdump(&self.vdp.borrow().vram);
-                            println!("{}", s);
-                        }
-                        Some(Keycode::Q) => {
-                            println!("Ê!");
-                            break 'running;
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
+            //                 if let Some(client) = &mut client {
+            //                     let emu_status = client.get_status()?;
+            //                     println!("openMSX: {}", emu_status);
+            //                 }
+            //             }
+            //             Some(Keycode::P) => {
+            //                 let pattern_table = self.vdp.pattern_table();
+            //                 println!("Pattern Table:");
+            //                 for charn in 0..256 {
+            //                     for charbit in charn * 8..charn * 8 + 8 {
+            //                         let byte = pattern_table[charbit];
+            //                         for bit in 0..8 {
+            //                             let pixel = (byte >> (7 - bit)) & 1;
+            //                             print!("{}", if pixel == 1 { "X" } else { " " });
+            //                         }
+            //                         println!();
+            //                     }
+            //                     println!("---");
+            //                 }
+            //                 println!("----------------");
+            //                 let readline = rl.readline(">> ");
+            //             }
+            //             Some(Keycode::V) => {
+            //                 info!("VDP Dump");
+            //                 info!("  registers: {:#04X?}", self.vdp.registers);
+            //                 info!("  status: {:#02X}", self.vdp.status);
+            //                 info!("  address: {:#04X}", self.vdp.address);
+            //                 if let Some(v) = self.vdp.first_write {
+            //                     info!("  latched val: {:#02X}", v);
+            //                 } else {
+            //                     info!("  latched val: None");
+            //                 }
+            //             }
+            //             Some(Keycode::H) => {
+            //                 let s = hexdump(&self.vdp.vram);
+            //                 println!("{}", s);
+            //             }
+            //             Some(Keycode::Q) => {
+            //                 println!("Ê!");
+            //                 break 'running;
+            //             }
+            //             _ => {}
+            //         },
+            //         _ => {}
+            //     }
+            // }
 
-            let last_opcode = self.cpu.memory.read_byte(self.cpu.pc);
-            debug!(
-                "running pc = {:#06X} opcode = {:#04X}",
-                self.cpu.pc, last_opcode
-            );
+            // let last_opcode = self.cpu.memory.read_byte(self.cpu.pc);
+            // debug!(
+            //     "running pc = {:#06X} opcode = {:#04X}",
+            //     self.cpu.pc, last_opcode
+            // );
             self.cpu.execute_cycle();
-            debug!(
-                "    ran pc = {:#06X} opcode = {:#04X}",
-                self.cpu.pc,
-                self.cpu.memory.read_byte(self.cpu.pc)
-            );
+            // debug!(
+            //     "    ran pc = {:#06X} opcode = {:#04X}",
+            //     self.cpu.pc,
+            //     self.cpu.memory.read_byte(self.cpu.pc)
+            // );
 
             let mut stop = false;
 
@@ -218,10 +226,17 @@ impl Msx {
                 }
                 stop_next = false;
                 let mut quit = false;
+
+                let mut rl = DefaultEditor::new()?;
+                if rl.load_history("history.txt").is_err() {
+                    println!("No previous history.");
+                }
+
                 loop {
                     let readline = rl.readline(">> ");
 
                     if let Ok(command) = readline {
+                        rl.add_history_entry(command.as_str())?;
                         if command == "quit" || command == "q" {
                             quit = true;
                             break;
@@ -299,13 +314,44 @@ impl Msx {
                             break;
                         }
 
-                        if command.starts_with("cont") {
+                        if command == "c" || command.starts_with("cont") {
                             break;
+                        }
+
+                        if command == "m" {
+                            self.break_on_mismatch = !self.break_on_mismatch;
+                            println!(
+                                "Break on mismatch: {}",
+                                if self.break_on_mismatch { "on" } else { "off" }
+                            );
+                        }
+
+                        if command == "b" {
+                            if self.breakpoints.is_empty() {
+                                println!("No breakpoints set.");
+                            } else {
+                                println!("Breakpoints:");
+                                for (i, breakpoint) in self.breakpoints.iter().enumerate() {
+                                    println!("  {}. {:#06X}", i, breakpoint);
+                                }
+                            }
+                        }
+
+                        if command.starts_with("rb ") {
+                            let command = command.replace("rb ", "");
+                            let command = command.split(' ').collect::<Vec<&str>>();
+                            if command[0].starts_with("0x") {
+                                // TODO
+                            } else {
+                                let index = command[0].parse::<usize>().unwrap();
+                                self.breakpoints.remove(index);
+                            }
                         }
                     }
                 }
 
                 if quit {
+                    rl.append_history("history.txt")?;
                     break;
                 }
             }
@@ -316,8 +362,8 @@ impl Msx {
 
             self.current_scanline = (self.current_scanline + 1) % 192;
             if self.current_scanline == 0 {
-                renderer.draw(0, 0, 256, 192);
-                self.display.update_screen(&renderer.screen_buffer);
+                // renderer.draw(0, 0, 256, 192);
+                // display.update_screen(&renderer.screen_buffer);
             }
         }
 

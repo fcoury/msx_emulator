@@ -1,3 +1,4 @@
+#[allow(unused)]
 pub fn hexdump(data: &[u8]) -> String {
     let mut data = data;
     let mut output = String::new();

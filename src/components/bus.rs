@@ -1,89 +1,63 @@
-#![allow(dead_code)]
-use std::{cell::RefCell, rc::Rc};
-
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
-use super::IoDevice;
+use super::{ppi::Ppi, sound::AY38910, vdp::TMS9918};
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Bus {
     slot_count: u8,
-    slots: Vec<Box<dyn IoDevice>>,
 
     // I/O Devices
-    io_devices: Vec<Rc<RefCell<dyn IoDevice + 'static>>>,
+    vdp: TMS9918,
+    psg: AY38910,
+    ppi: Ppi,
 
     vdp_io_clock: u8,
     primary_slot_config: u8,
     slot3_secondary_config: u8,
 }
 
-impl Bus {
-    pub fn new() -> Self {
+impl Default for Bus {
+    fn default() -> Self {
         let slot_count = 4;
-
-        // Create a Vec<Box<dyn IoDevice>> with EmptySlot instances using a loop
-        let mut slots: Vec<Box<dyn IoDevice>> = Vec::with_capacity(slot_count as usize);
-        for _ in 0..slot_count {
-            slots.push(Box::new(EmptySlot));
-        }
 
         Self {
             slot_count,
-            slots,
-
-            io_devices: Vec::new(),
-
+            vdp: TMS9918::new(),
+            psg: AY38910::new(),
+            ppi: Ppi::new(),
             vdp_io_clock: 0,
             primary_slot_config: 0,
             slot3_secondary_config: 0,
         }
     }
+}
 
-    pub fn register_device(&mut self, device: Rc<RefCell<dyn IoDevice>>) {
-        self.io_devices.push(device);
+impl Bus {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn input(&mut self, port: u8) -> u8 {
-        for device in &self.io_devices {
-            if device.borrow().is_valid_port(port) {
-                let mut device_ref = device.as_ref().borrow_mut();
-                return device_ref.read(port);
+        match port {
+            0x98 | 0x99 => self.vdp.read(port),
+            0xA0 | 0xA1 => self.psg.read(port),
+            0xA8 | 0xA9 | 0xAA | 0xAB => self.ppi.read(port),
+            _ => {
+                error!("  *** [BUS] Invalid port {:02X} read", port);
+                0xff
             }
         }
-
-        error!("  *** [BUS] Invalid port {:02X} read", port);
-        0xff
     }
 
     pub fn output(&mut self, port: u8, data: u8) {
-        for device in &self.io_devices {
-            if device.borrow().is_valid_port(port) {
-                let mut device_ref = device.as_ref().borrow_mut();
-                device_ref.write(port, data);
-                return;
+        match port {
+            0x98 | 0x99 => self.vdp.write(port, data),
+            0xA0 | 0xA1 => self.psg.write(port, data),
+            0xA8 | 0xA9 | 0xAA | 0xAB => self.ppi.write(port, data),
+            _ => {
+                error!("  *** [BUS] Invalid port {:02X} write", port);
             }
-        }
-
-        error!("  *** [BUS] Invalid port {:02X} write", port);
+        };
     }
-
-    fn reset(&mut self) {
-        self.vdp_io_clock = 0;
-        self.primary_slot_config = 0;
-    }
-}
-
-#[derive(Clone)]
-struct EmptySlot;
-
-impl IoDevice for EmptySlot {
-    fn is_valid_port(&self, _port: u8) -> bool {
-        false
-    }
-
-    fn read(&mut self, _port: u8) -> u8 {
-        0xFF
-    }
-
-    fn write(&mut self, _port: u8, _data: u8) {}
 }

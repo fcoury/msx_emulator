@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use tracing::{error, trace};
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
+use tracing::{error, info, trace};
 
-use super::IoDevice;
-
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Sprite {
     pub x: u8,
     pub y: u8,
@@ -13,14 +13,16 @@ pub struct Sprite {
     pub collision: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct TMS9918 {
+    #[serde(with = "BigArray")]
     pub vram: [u8; 0x4000],
+    pub data_pre_read: u8, // read-ahead value
     pub registers: [u8; 8],
     pub status: u8,
     pub address: u16,
-    pub latch: bool,
-    pub command: u8,
+    pub first_write: Option<u8>,
+    #[serde(with = "BigArray")]
     pub screen_buffer: [u8; 256 * 192],
     pub sprites: [Sprite; 8],
     pub frame: u8,
@@ -28,15 +30,15 @@ pub struct TMS9918 {
     pub vblank: bool,
 }
 
-impl TMS9918 {
-    pub fn new() -> Self {
+impl Default for TMS9918 {
+    fn default() -> Self {
         Self {
             vram: [0; 0x4000],
+            data_pre_read: 0,
             registers: [0; 8],
             status: 0,
             address: 0,
-            latch: false,
-            command: 0,
+            first_write: None,
             screen_buffer: [0; 256 * 192],
             sprites: [Sprite {
                 x: 0,
@@ -49,6 +51,12 @@ impl TMS9918 {
             line: 0,
             vblank: false,
         }
+    }
+}
+
+impl TMS9918 {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     // Pattern Table Base Address = register 2 * 0x400
@@ -67,71 +75,128 @@ impl TMS9918 {
         0
     }
 
+    // WebMSX input98
     fn read_vram(&mut self) -> u8 {
-        let data = self.vram[self.address as usize];
+        // uses the read-ahead value
+        let data = self.data_pre_read;
+
+        // pre-read the next value
+        self.data_pre_read = self.vram[self.address as usize];
+
+        // increment the address
         self.address = self.address.wrapping_add(1);
-        self.latch = false;
+
+        // reset the latch
+        self.first_write = None;
+
+        // return the read-ahead value
         data
     }
 
-    fn write_vram(&mut self, data: u8) {
-        trace!("Write VRAM {:04X}: {:02X}", self.address, data);
+    fn write_98(&mut self, data: u8) {
+        if data == 0x63 {
+            info!(
+                "[VDP] Writing at {:04X}: 0x{:02X} ({}) on port #98, handling...",
+                self.address, data, data as char
+            );
+        }
         if self.address < 0x4000 {
             self.vram[self.address as usize] = data;
+            self.data_pre_read = data;
+        } else {
+            // error!(
+            //     "[VDP] Attempted to write to VRAM at address {:04X} = 0x{:02X} {}",
+            //     self.address, data, data as char
+            // );
         }
         self.address = self.address.wrapping_add(1);
-        self.latch = false;
+        trace!(
+            "[VDP] Address after increment: 0x{:04X}, removing latched data...",
+            self.address
+        );
+
+        self.first_write = None;
+        trace!("");
     }
+
+    // fn read_register(&mut self) -> u8 {
+    //     let data = self.status;
+    //     // TODO: m_StatusReg = m_FifthSprite;
+    //     // TODO: check_interrupt();
+    //     self.latch = false;
+    //     data
+    // }
 
     fn read_register(&mut self) -> u8 {
-        let data = self.status;
-        // TODO: m_StatusReg = m_FifthSprite;
-        // TODO: check_interrupt();
-        self.latch = false;
-        data
+        self.first_write = None;
+        let res = self.status;
+        // TODO: disable interrupt
+        self.status &= 0x7F;
+        res
     }
 
-    fn write_register(&mut self, data: u8) {
-        println!("Write register: {:02X} latch: {}", data, self.latch);
-        if self.latch {
+    fn write_99(&mut self, data: u8) {
+        info!(
+            "[VDP] Received 0x{:02X} ({}) at Port #99, handling...",
+            data, data as char
+        );
+        if let Some(latched_value) = self.first_write {
+            info!(
+                "[VDP] Received data after latch: 0x{:02X} (checks if 0x{:02X} == 0)",
+                data,
+                data & 0x80
+            );
             if data & 0x80 == 0 {
                 // Set register
-                println!("Set register: {:02X}", data);
+                info!("[VDP] Set register: {:02X}", data);
                 let reg = data & 0x07;
-                println!("Set register: {:02X}", reg);
-                self.registers[reg as usize] = self.command;
+                info!("[VDP] Register is: {:08b}", reg);
+                self.registers[reg as usize] = latched_value;
+                info!("[VDP] Current latched value: {:02X}", latched_value);
                 // On V9918, the VRAM pointer high gets also written when writing to registers
-                self.address = (self.address & 0x00FF) | ((self.command as u16 & 0x03F) << 8);
+                self.address = (self.address & 0x00FF) | ((latched_value as u16 & 0x03F) << 8);
+                info!(
+                    "[VDP] Also setting high part of the address to {:02X}. Address after: {:04X}",
+                    latched_value, self.address
+                );
             } else {
                 // Set VRAM pointer
-                println!("Set VRAM pointer: {:02X}", data);
-                println!("Address before: {:04X}", self.address);
-                self.address = self.address | ((data & 0x3F) as u16) | self.command as u16;
+                info!(
+                    "[VDP] Latched value: 0x{:02X}. Received: 0x{:02X}",
+                    latched_value, data
+                );
+                info!("[VDP] Current address: 0x{:04X}", self.address);
+
+                // extracts the 6-bit most significant bits
+                let msb = (data & 0x3F) as u16;
+                let lsb = latched_value as u16;
+
+                info!("[VDP] MSB: {:08b} LSB: {:08b}", msb, lsb);
+                self.address = self.address | msb | lsb;
+                info!("[VDP] Address after MSB, MLB: {:04X}", self.address);
                 // Pre-read VRAM if "writemode = 0"
                 if (data & 0x40) == 0 {
                     self.status = self.vram[self.address as usize];
                     self.address = self.address.wrapping_add(1);
+                    info!("[VDP] Writemode is 0, address after: {:04X}", self.address);
                 }
-                println!("Address after: {:04X}", self.address);
             }
-            self.latch = false;
+            self.first_write = None;
         } else {
-            self.command = data;
+            self.first_write = Some(data);
             // On V9918, the VRAM pointer low gets written right away
-            println!("Address before: {:04X}", self.address);
+            // println!("Address before: {:04X}", self.address);
             self.address = (self.address & 0xFF00) | data as u16;
-            println!("Address after: {:04X}", self.address);
-            self.latch = true;
+            // println!("Address after: {:04X}", self.address);
+            info!(
+                "[VDP] Received first byte of the address (0x{:02X}), latching...",
+                data
+            );
         }
-    }
-}
-
-impl IoDevice for TMS9918 {
-    fn is_valid_port(&self, port: u8) -> bool {
-        matches!(port, 0x98 | 0x99)
+        info!("");
     }
 
-    fn read(&mut self, port: u8) -> u8 {
+    pub fn read(&mut self, port: u8) -> u8 {
         match port {
             // VRAM Read
             0x98 => self.read_vram(),
@@ -144,11 +209,11 @@ impl IoDevice for TMS9918 {
         }
     }
 
-    fn write(&mut self, port: u8, data: u8) {
+    pub fn write(&mut self, port: u8, data: u8) {
         // writing to data port 0x98
         match port {
-            0x98 => self.write_vram(data),
-            0x99 => self.write_register(data),
+            0x98 => self.write_98(data),
+            0x99 => self.write_99(data),
             _ => {
                 error!("Invalid port: {:02X}", port);
             }

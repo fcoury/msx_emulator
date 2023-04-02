@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 
-use super::IoDevice;
-
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AY38910 {
     registers: [u8; 16],
     selected_register: u8,
@@ -22,14 +22,8 @@ impl AY38910 {
         // Generate a single audio sample
         todo!()
     }
-}
 
-impl IoDevice for AY38910 {
-    fn is_valid_port(&self, port: u8) -> bool {
-        matches!(port, 0xA0 | 0xA1)
-    }
-
-    fn read(&mut self, port: u8) -> u8 {
+    pub fn read(&mut self, port: u8) -> u8 {
         match port {
             0xA0 => self.selected_register,
             0xA1 => self.registers[self.selected_register as usize],
@@ -37,7 +31,7 @@ impl IoDevice for AY38910 {
         }
     }
 
-    fn write(&mut self, port: u8, data: u8) {
+    pub fn write(&mut self, port: u8, data: u8) {
         match port {
             0xA0 => {
                 trace!("[psg] Selecting register {:02X}", data);

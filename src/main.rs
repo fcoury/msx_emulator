@@ -1,11 +1,12 @@
 mod components;
+mod console;
 mod internal_state;
 mod msx;
 mod open_msx;
 mod renderer;
 mod utils;
 
-use std::path::PathBuf;
+use std::{net::SocketAddr, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 #[allow(unused_imports)]
@@ -16,7 +17,14 @@ use crate::msx::Msx;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    Compile { path: PathBuf },
+    Compile {
+        path: PathBuf,
+    },
+
+    Console {
+        #[clap(short, long, default_value = "127.0.0.1:3000")]
+        addr: SocketAddr,
+    },
 }
 
 #[derive(Parser, Debug)]
@@ -59,17 +67,29 @@ fn main() -> anyhow::Result<()> {
     //     .filter(None, LevelFilter::Trace)
     //     .init();
 
-    let mut msx = Msx::new(&cli);
-    msx.load_bios(cli.rom_path)
-        .expect("Failed to load the BIOS");
-
-    msx.max_cycles = cli.max_cycles;
-    msx.track_flags = cli.track_flags;
-    for breakpoint in cli.breakpoint {
-        let breakpoint = u16::from_str_radix(&breakpoint[2..], 16)?;
-        msx.add_breakpoint(breakpoint);
+    match cli.command {
+        Some(Command::Console { addr }) => {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(async {
+                    let console = console::Console::new(addr);
+                    console.start().await
+                })?;
+            return Ok(());
+        }
+        _ => {
+            let mut msx = Msx::from_cli(&cli);
+            msx.load_bios(cli.rom_path)
+                .expect("Failed to load the BIOS");
+            msx.max_cycles = cli.max_cycles;
+            msx.track_flags = cli.track_flags;
+            for breakpoint in cli.breakpoint {
+                let breakpoint = u16::from_str_radix(&breakpoint[2..], 16)?;
+                msx.add_breakpoint(breakpoint);
+            }
+            msx.run()?;
+        }
     }
-    msx.run()?;
-
     Ok(())
 }

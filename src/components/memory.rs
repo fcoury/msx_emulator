@@ -1,14 +1,28 @@
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, RwLock};
 
-use super::{vdp::TMS9918, IoDevice};
+use serde::{Deserialize, Serialize};
+use tracing::error;
 
+use super::bus::Bus;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Memory {
-    vdp: Rc<RefCell<TMS9918>>,
+    #[serde(skip)]
+    pub bus: Arc<RwLock<Bus>>,
     pub data: Vec<u8>,
 }
 
+impl Default for Memory {
+    fn default() -> Self {
+        Self {
+            bus: Arc::new(RwLock::new(Bus::default())),
+            data: vec![],
+        }
+    }
+}
+
 impl Memory {
-    pub fn new(vdp: Rc<RefCell<TMS9918>>, size: usize) -> Self {
+    pub fn new(bus: Arc<RwLock<Bus>>, size: usize) -> Self {
         let mut data = vec![0xFF; size];
 
         // fill the addresses from FD9A through FFC9 with C9
@@ -20,7 +34,7 @@ impl Memory {
             data[i] = 0xFF;
         });
 
-        Memory { vdp, data }
+        Memory { bus, data }
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
@@ -45,11 +59,13 @@ impl Memory {
         match address {
             0x0000..=0x3FFF => {
                 // Writing to BIOS is typically not allowed
-                panic!("Writing to BIOS is not allowed")
+                self.data[address as usize] = value;
+                error!("Writing to BIOS is not allowed")
             }
             0x4000..=0x7FFF => {
                 // Writing to BASIC is typically not allowed
-                panic!("Writing to BASIC is not allowed")
+                self.data[address as usize] = value;
+                error!("Writing to BASIC is not allowed")
             }
             0x8000..=0xBFFF => {
                 // panic!("Writing to cartidge, does nothing")
@@ -57,14 +73,20 @@ impl Memory {
                     0x9800 => {
                         // Write to VDP Data Register (0x98)
                         // Implement VRAM write logic here
-                        let mut vdp = self.vdp.as_ref().borrow_mut();
-                        vdp.write(0x98, value);
+                        let mut bus = self
+                            .bus
+                            .write()
+                            .expect("Couldn't obtain a write lock on the bus.");
+                        bus.output(0x98, value);
                     }
                     0x9801 => {
                         // Write to VDP Address Register (0x99)
                         // Implement VRAM address setting logic here
-                        let mut vdp = self.vdp.as_ref().borrow_mut();
-                        vdp.write(0x99, value);
+                        let mut bus = self
+                            .bus
+                            .write()
+                            .expect("Couldn't obtain a write lock on the bus.");
+                        bus.output(0x99, value);
                     }
                     _ => {}
                 }

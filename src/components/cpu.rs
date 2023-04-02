@@ -1,8 +1,11 @@
-use std::fmt;
+use std::{
+    fmt,
+    sync::{Arc, RwLock},
+};
 
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, trace};
 
-use crate::components::IoDevice;
 use crate::internal_state::InternalState;
 
 use super::{bus::Bus, memory::Memory};
@@ -17,7 +20,7 @@ use super::{bus::Bus, memory::Memory};
 // static constexpr byte N_FLAG = 0x02;
 // static constexpr byte C_FLAG = 0x01;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 pub enum Flag {
     S = 0x80, // Sign
     Z = 0x40, // Zero
@@ -27,8 +30,10 @@ pub enum Flag {
     C = 0x01, // Carry
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Z80 {
-    pub bus: Bus,
+    #[serde(skip)]
+    pub bus: Arc<RwLock<Bus>>,
 
     // 8-bit registers
     pub a: u8,
@@ -97,7 +102,7 @@ impl fmt::Display for Z80 {
 }
 
 impl Z80 {
-    pub fn new(bus: Bus, memory: Memory) -> Self {
+    pub fn new(bus: Arc<RwLock<Bus>>, memory: Memory) -> Self {
         Z80 {
             bus,
             a: 0xff,
@@ -108,14 +113,14 @@ impl Z80 {
             e: 0xff,
             h: 0xff,
             l: 0xff,
-            a_alt: 0,
-            f_alt: 0,
-            b_alt: 0,
-            c_alt: 0,
-            d_alt: 0,
-            e_alt: 0,
-            h_alt: 0,
-            l_alt: 0,
+            a_alt: 0xFF,
+            f_alt: 0xFF,
+            b_alt: 0xFF,
+            c_alt: 0xFF,
+            d_alt: 0xFF,
+            e_alt: 0xFF,
+            h_alt: 0xFF,
+            l_alt: 0xFF,
             sp: 0xFFFF,
             pc: 0,
             ix: 0,
@@ -203,7 +208,9 @@ impl Z80 {
 
         // Fetch and decode the next instruction
         let opcode = self.memory.read_byte(self.pc);
-        // info!("PC: 0x{:04X} Opcode: 0x{:02X}", self.pc, opcode);
+        // if opcode > 0x00 {
+        //     info!("PC: 0x{:04X} Opcode: 0x{:02X}", self.pc, opcode);
+        // }
         // trace!(
         //     "A: 0x{:02X} B: 0x{:02X} C: 0x{:02X} F: 0b{:b}",
         //     self.a,
@@ -215,6 +222,37 @@ impl Z80 {
         // Execute the instruction
         match opcode {
             0x00 => self.nop(),
+            0xCF => {
+                // RST 30H
+                match self.c {
+                    0x02 => {
+                        // BDOS function 2: output a character
+                        print!("{}", self.e as char);
+                    }
+                    0x09 => {
+                        // BDOS function 9: output a string
+                        let mut current_address = self.get_de();
+                        loop {
+                            let current_char = self.memory.read_byte(current_address);
+                            if current_char == b'$' {
+                                // String terminator
+                                break;
+                            }
+                            print!("{}", current_char as char);
+                            current_address = current_address.wrapping_add(1);
+                        }
+                    }
+                    _ => {
+                        panic!("Unhandled BDOS call: C = 0x{:02X}", self.c);
+                    }
+                }
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0xC7 => {
+                // RST 00H
+                trace!("RST 00H");
+                self.rst(0x00);
+            }
             0xD7 => {
                 // RST 0x10
                 trace!("RST");
@@ -265,6 +303,12 @@ impl Z80 {
                 let value = self.memory.read_byte(self.pc);
                 trace!("LD D, 0x{:02X}", value);
                 self.d = value;
+                self.pc = self.pc.wrapping_add(1);
+            }
+            0x64 => {
+                // LD H, H
+                trace!("LD H, H");
+                // No operation needed, as H already contains the value of H
                 self.pc = self.pc.wrapping_add(1);
             }
             0x56 => {
@@ -1035,7 +1079,6 @@ impl Z80 {
                 // SUB n
                 trace!("SUB n");
                 let value = self.memory.read_byte(self.pc.wrapping_add(1));
-                info!("SUB n with value: {:#X}", value);
                 self.pc = self.pc.wrapping_add(2);
                 self.sub_a(value);
             }
@@ -1678,14 +1721,6 @@ impl Z80 {
                     if self.check_flag(Flag::C) { 1 } else { 0 }
                 );
 
-                if opcode == 0x28 {
-                    info!(
-                        "Flags for JS - Z={} C={}",
-                        if self.check_flag(Flag::Z) { 1 } else { 0 },
-                        if self.check_flag(Flag::C) { 1 } else { 0 }
-                    );
-                }
-
                 // JR cc, n
                 let condition = match opcode {
                     0x20 => !self.check_flag(Flag::Z), // JR NZ, n
@@ -1704,7 +1739,7 @@ impl Z80 {
                         self.pc.wrapping_add(offset as u16),
                         condition
                     ),
-                    0x28 => info!(
+                    0x28 => trace!(
                         "JR Z, 0x{:04X} = {} (offset {})",
                         self.pc.wrapping_add(offset as u16),
                         condition,
@@ -1860,7 +1895,13 @@ impl Z80 {
                 let port = self.read_byte(self.pc.wrapping_add(1));
                 trace!("IN A, (0x{:02X})", port);
 
-                self.a = self.bus.input(port);
+                {
+                    let mut bus = self
+                        .bus
+                        .write()
+                        .expect("Couldn't obtain a write lock on the bus.");
+                    self.a = bus.input(port);
+                }
 
                 error!(
                     "PC = #{:04X} IN (#{:02X}), A=0x{:02X}",
@@ -1873,12 +1914,20 @@ impl Z80 {
                 // OUT (n), A
                 let port = self.read_byte(self.pc.wrapping_add(1));
                 let data = self.a;
-                error!(
+                trace!(
                     "PC = #{:04X} OUT (#{:02X}), A=0x{:02X}",
-                    self.pc, port, data
+                    self.pc,
+                    port,
+                    data
                 );
 
-                self.bus.output(port, data);
+                {
+                    let mut bus = self
+                        .bus
+                        .write()
+                        .expect("Couldn't obtain a write lock on the bus.");
+                    bus.output(port, data);
+                }
                 self.pc = self.pc.wrapping_add(2);
             }
 
@@ -1898,12 +1947,27 @@ impl Z80 {
                         // OUTI
                         let value = self.memory.read_byte(self.get_hl());
                         let port = self.c;
-                        self.bus.output(port, value);
-                        let hl = self.get_hl().wrapping_add(1);
-                        self.set_hl(hl);
-                        let b = self.b.wrapping_sub(1);
-                        self.b = b;
-                        self.set_flag(Flag::P, b != 0);
+                        if port >= 0x90 && value == 0x63 {
+                            info!(
+                                "PC = #{:04X} OUT (#{:02X}) from HL 0x{:04X} = 0x{:02X}",
+                                self.pc,
+                                self.get_hl(),
+                                port,
+                                value
+                            );
+                        }
+
+                        {
+                            let mut bus = self
+                                .bus
+                                .write()
+                                .expect("Couldn't obtain a write lock on the bus.");
+                            bus.output(port, value);
+                        }
+
+                        self.set_hl(self.get_hl().wrapping_add(1));
+                        self.b = self.b.wrapping_sub(1);
+                        self.set_flag(Flag::P, self.b != 0);
                         trace!("OUTI");
                     }
                     // Add extended opcodes handling here

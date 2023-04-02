@@ -1,19 +1,18 @@
-use std::{cell::RefCell, rc::Rc};
-
+#![allow(dead_code)]
 use crate::components::vdp::TMS9918;
 
-pub struct Renderer {
-    vdp: Rc<RefCell<TMS9918>>,
+pub struct Renderer<'a> {
+    vdp: &'a TMS9918,
     pub screen_buffer: [u8; 256 * 192],
 }
 
-impl Renderer {
-    pub fn new(vdp: Rc<RefCell<TMS9918>>) -> Self {
+impl<'a> Renderer<'a> {
+    pub fn new(vdp: &'a TMS9918) -> Self {
         let screen_buffer = [0; 256 * 192];
         Self { vdp, screen_buffer }
     }
 
-    pub fn draw(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
+    pub fn draw(&mut self, _x0: u16, y0: u16, _x1: u16, y1: u16) {
         // TODO check for text mode
         // TODO check for scroll delta
         let fg = 15; // TODO Pixel fg = palFg[vdp.getForegroundColor()];
@@ -34,17 +33,16 @@ impl Renderer {
     }
 
     pub fn render_text1(&mut self, line: usize, fg: u8, bg: u8) {
-        let vdp_borrow = self.vdp.borrow();
-        let pattern_area = vdp_borrow.pattern_table();
-        let l = (line + vdp_borrow.get_vertical_scroll()) & 7;
+        let pattern_area = self.vdp.pattern_table();
+        let l = (line + self.vdp.get_vertical_scroll()) & 7;
 
         let name_start = (line / 8) * 40;
         let name_end = name_start + 40;
         let mut pixel_ptr = line * 256;
         for name in name_start..name_end {
             // FIXME why is the screen content at 0x0990 in our version?
-            let screen_offset = 0x1800 + name; // Calculate the proper offset in the VRAM
-            let char_code = vdp_borrow.vram[screen_offset]; // Get the value directly from the VRAM array
+            let screen_offset = 0x0900 + name; // Calculate the proper offset in the VRAM
+            let char_code = self.vdp.vram[screen_offset]; // Get the value directly from the VRAM array
             let pattern = pattern_area[l + char_code as usize * 8];
 
             for i in 0..6 {

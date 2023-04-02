@@ -1,6 +1,8 @@
 #![allow(dead_code)]
-use super::IoDevice;
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Ppi {
     register_a: u8,
     register_b: u8,
@@ -36,19 +38,13 @@ impl Ppi {
     fn update_caps_led(&self) {
         // TODO leds_socket.led_state_changed(0, (~registerC & 0x40) >> 6);
     }
-}
 
-impl IoDevice for Ppi {
-    fn is_valid_port(&self, port: u8) -> bool {
-        matches!(port, 0xA8 | 0xA9 | 0xAA | 0xAB)
-    }
-
-    fn read(&mut self, port: u8) -> u8 {
+    pub fn read(&mut self, port: u8) -> u8 {
         match port {
             0xA8 => {
                 // get primary slot config
-                println!(
-                    "  *** [PPI] Reading from PPI port {:02X} = {:02X}",
+                info!(
+                    "[PPI] Reading from PPI port {:02X} = {:02X}",
                     port, self.register_a,
                 );
                 self.register_a
@@ -76,19 +72,19 @@ impl IoDevice for Ppi {
         }
     }
 
-    fn write(&mut self, port: u8, value: u8) {
+    pub fn write(&mut self, port: u8, value: u8) {
         match port {
             0xA8 => {
                 // set primary slot config
-                println!("  *** [PPI] Writing '{:02X}' to PPI port 0xA8", value);
+                info!("[PPI] Writing '{:02X}' to PPI port 0xA8", value);
                 self.register_a = value;
             }
             0xA9 => {
-                println!("  *** [PPI] Writing '{:02X}' to PPI port 0xA9", value);
+                info!("[PPI] Writing '{:02X}' to PPI port 0xA9", value);
                 // this port is ignored as output -- input only
             }
             0xAA => {
-                println!("  *** [PPI] Writing '{:02X}' to PPI port 0xAA", value);
+                info!("[PPI] Writing '{:02X}' to PPI port 0xAA", value);
                 self.register_c = value;
                 // var bit = (val & 0x0e) >>> 1;
                 // if ((val & 0x01) === 0) registerC &= ~(1 << bit);
@@ -99,10 +95,7 @@ impl IoDevice for Ppi {
                 // else if (bit === 6) updateCapsLed();
             }
             0xAB => {
-                println!(
-                    "  *** [PPI] Writing '{:02X}' to PPI port 0xAB (control)",
-                    value
-                );
+                info!("[PPI] Writing '{:02X}' to PPI port 0xAB (control)", value);
                 self.control = value & 0x7F;
                 let bit_number = (value >> 1) & 0x07;
                 let bit_status = value & 0x01;

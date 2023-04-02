@@ -1,0 +1,1823 @@
+main.asm line 170: Illegal macro argument: ,memop,iy,ix,hl,de,bc,flags,acc,sp
+main.asm line 170: Unexpected: ,memop,iy,ix,hl,de,bc,flags,acc,sp
+main.asm line 1: Unrecognized instruction: .title	'Z80 instruction set exerciser'
+0001   0000             	.title	'Z80 instruction set exerciser'
+0002   0000             
+0003   0000             ; zexlax.z80 - Z80 instruction set exerciser
+0004   0000             ; Copyright (C) 1994  Frank D. Cringle
+0005   0000             ;
+0006   0000             ; This program is free software; you can redistribute it and/or
+0007   0000             ; modify it under the terms of the GNU General Public License
+0008   0000             ; as published by the Free Software Foundation; either version 2
+0009   0000             ; of the License, or (at your option) any later version.
+0010   0000             ;
+0011   0000             ; This program is distributed in the hope that it will be useful,
+0012   0000             ; but WITHOUT ANY WARRANTY; without even the implied warranty of
+0013   0000             ; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+0014   0000             ; GNU General Public License for more details.
+0015   0000             ;
+0016   0000             ; You should have received a copy of the GNU General Public License
+0017   0000             ; along with this program; if not, write to the Free Software
+0018   0000             ; Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+0019   0000             
+main.asm line 20: Unrecognized instruction: aseg
+0020   0000             	aseg
+0021   0000             	org	100h
+0022   0100             
+0023   0100 C3 13 01    	jp	start
+0024   0103             
+0025   0103             ; machine state before test (needs to be at predictably constant address)
+0026   0103 00          msbt:	ds	14
+0027   0111 00          spbt:	ds	2
+0028   0113             
+0029   0113             ; For the purposes of this test program, the machine state consists of:
+0030   0113             ;	a 2 byte memory operand, followed by
+0031   0113             ;	the registers iy,ix,hl,de,bc,af,sp
+0032   0113             ; for a total of 16 bytes.
+0033   0113             
+0034   0113             ; The program tests instructions (or groups of similar instructions)
+0035   0113             ; by cycling through a sequence of machine states, executing the test
+0036   0113             ; instruction for each one and running a 32-bit crc over the resulting
+0037   0113             ; machine states.  At the end of the sequence the crc is compared to
+0038   0113             ; an expected value that was found empirically on a real Z80.
+0039   0113             
+0040   0113             ; A test case is defined by a descriptor which consists of:
+0041   0113             ;	a flag mask byte,
+0042   0113             ;	the base case,
+0043   0113             ;	the incement vector,
+0044   0113             ;	the shift vector,
+0045   0113             ;	the expected crc,
+0046   0113             ;	a short descriptive message.
+0047   0113             ;
+0048   0113             ; The flag mask byte is used to prevent undefined flag bits from
+0049   0113             ; influencing the results.  Documented flags are as per Mostek Z80
+0050   0113             ; Technical Manual.
+0051   0113             ;
+0052   0113             ; The next three parts of the descriptor are 20 byte vectors
+0053   0113             ; corresponding to a 4 byte instruction and a 16 byte machine state.
+0054   0113             ; The first part is the base case, which is the first test case of
+0055   0113             ; the sequence.  This base is then modified according to the next 2
+0056   0113             ; vectors.  Each 1 bit in the increment vector specifies a bit to be
+0057   0113             ; cycled in the form of a binary counter.  For instance, if the byte
+0058   0113             ; corresponding to the accumulator is set to 0ffh in the increment
+0059   0113             ; vector, the test will be repeated for all 256 values of the
+0060   0113             ; accumulator.  Note that 1 bits don't have to be contiguous.  The
+0061   0113             ; number of test cases 'caused' by the increment vector is equal to
+0062   0113             ; 2^(number of 1 bits).  The shift vector is similar, but specifies a
+0063   0113             ; set of bits in the test case that are to be successively inverted.
+0064   0113             ; Thus the shift vector 'causes' a number of test cases equal to the
+0065   0113             ; number of 1 bits in it.
+0066   0113             
+0067   0113             ; The total number of test cases is the product of those caused by the
+0068   0113             ; counter and shift vectors and can easily become unweildy.  Each
+0069   0113             ; individual test case can take a few milliseconds to execute, due to
+0070   0113             ; the overhead of test setup and crc calculation, so test design is a
+0071   0113             ; compromise between coverage and execution time.
+0072   0113             
+0073   0113             ; This program is designed to detect differences between
+0074   0113             ; implementations and is not ideal for diagnosing the causes of any
+0075   0113             ; discrepancies.  However, provided a reference implementation (or
+0076   0113             ; real system) is available, a failing test case can be isolated by
+0077   0113             ; hand using a binary search of the test space.
+0078   0113             
+0079   0113             
+0080   0113 2A 06 00    start:	ld	hl,(6)
+0081   0116 F9          	ld	sp,hl
+0082   0117 11 09 06    	ld	de,msg1
+0083   011A 0E 09       	ld	c,9
+0084   011C CD FD 05    	call	bdos
+0085   011F             
+0086   011F 21 3A 01    	ld	hl,tests	; first test case
+0087   0122 7E          loop:	ld	a,(hl)		; end of list ?
+0088   0123 23          	inc	hl
+0089   0124 B6          	or	(hl)
+0090   0125 CA 2F 01    	jp	z,done
+0091   0128 2B          	dec	hl
+0092   0129 CD 11 03    	call	stt
+0093   012C C3 22 01    	jp	loop
+0094   012F             
+0095   012F 11 0D 06    done:	ld	de,msg2
+0096   0132 0E 09       	ld	c,9
+0097   0134 CD FD 05    	call	bdos
+0098   0137 C3 00 00    	jp	0		; warm boot
+0099   013A             
+0100   013A             tests:
+0101   013A C2 01       	dw	adc16
+0102   013C C7 01       	dw	add16
+0103   013E CC 01       	dw	add16x
+0104   0140 D1 01       	dw	add16y
+0105   0142 D6 01       	dw	alu8i
+0106   0144 DB 01       	dw	alu8r
+0107   0146 E0 01       	dw	alu8rx
+0108   0148 E5 01       	dw	alu8x
+0109   014A EA 01       	dw	bitx
+0110   014C EF 01       	dw	bitz80
+0111   014E F4 01       	dw	cpd1
+0112   0150 F9 01       	dw	cpi1
+0113   0152 FE 01       	dw	daa
+0114   0154 03 02       	dw	inca
+0115   0156 08 02       	dw	incb
+0116   0158 0D 02       	dw	incbc
+0117   015A 12 02       	dw	incc
+0118   015C 17 02       	dw	incd
+0119   015E 1C 02       	dw	incde
+0120   0160 21 02       	dw	ince
+0121   0162 26 02       	dw	inch
+0122   0164 2B 02       	dw	inchl
+0123   0166 30 02       	dw	incix
+0124   0168 35 02       	dw	inciy
+0125   016A 3A 02       	dw	incl
+0126   016C 3F 02       	dw	incm
+0127   016E 44 02       	dw	incsp
+0128   0170 49 02       	dw	incx
+0129   0172 4E 02       	dw	incxh
+0130   0174 53 02       	dw	incxl
+0131   0176 58 02       	dw	incyh
+0132   0178 5D 02       	dw	incyl
+0133   017A 62 02       	dw	ld161
+0134   017C 67 02       	dw	ld162
+0135   017E 6C 02       	dw	ld163
+0136   0180 71 02       	dw	ld164
+0137   0182 76 02       	dw	ld165
+0138   0184 7B 02       	dw	ld166
+0139   0186 80 02       	dw	ld167
+0140   0188 85 02       	dw	ld168
+0141   018A 8A 02       	dw	ld16im
+0142   018C 8F 02       	dw	ld16ix
+0143   018E 94 02       	dw	ld8bd
+0144   0190 99 02       	dw	ld8im
+0145   0192 9E 02       	dw	ld8imx
+0146   0194 A3 02       	dw	ld8ix1
+0147   0196 A8 02       	dw	ld8ix2
+0148   0198 AD 02       	dw	ld8ix3
+0149   019A B2 02       	dw	ld8ixy
+0150   019C B7 02       	dw	ld8rr
+0151   019E BC 02       	dw	ld8rrx
+0152   01A0 C1 02       	dw	lda
+0153   01A2 C6 02       	dw	ldd1
+0154   01A4 CB 02       	dw	ldd2
+0155   01A6 D0 02       	dw	ldi1
+0156   01A8 D5 02       	dw	ldi2
+0157   01AA DA 02       	dw	neg
+0158   01AC DF 02       	dw	rld
+0159   01AE E4 02       	dw	rot8080
+0160   01B0 E9 02       	dw	rotxy
+0161   01B2 EE 02       	dw	rotz80
+0162   01B4 F3 02       	dw	srz80
+0163   01B6 F8 02       	dw	srzx
+0164   01B8 FD 02       	dw	st8ix1
+0165   01BA 02 03       	dw	st8ix2
+0166   01BC 07 03       	dw	st8ix3
+0167   01BE 0C 03       	dw	stabd
+0168   01C0 00 00       	dw	0
+0169   01C2             
+0170   01C2             tstr:	macro	insn,memop,iy,ix,hl,de,bc,flags,acc,sp
+0171   01C2~            	local	lab
+0172   01C2~            &lab:	db	insn
+0173   01C2~            	ds	&lab+4-$,0
+0174   01C2~            	dw	&memop,&iy,&ix,&hl,&de,&bc
+0175   01C2~            	db	&flags
+0176   01C2~            	db	&acc
+0177   01C2~            	dw	&sp
+0178   01C2~            	if	$-&lab ne 20
+0179   01C2~            	error	'missing parameter'
+0180   01C2~            	endif
+main.asm line 181: Unexpected: ,memop,iy,ix,hl,de,bc,flags,acc,sp
+0181   01C2             	endm
+0182   01C2             
+0183   01C2             tmsg:	macro	m
+0184   01C2~            	local	lab
+0185   01C2~            &lab:	db	m
+0186   01C2~            	if	$ ge &lab+30
+0187   01C2~            	error	'message too long'
+0188   01C2~            	else
+0189   01C2~            	ds	&lab+30-$,'.'
+0190   01C2~            	endif
+0191   01C2~            	db	'$'
+0192   01C2             	endm
+0193   01C2             
+0194   01C2             ; <adc,sbc> hl,<bc,de,hl,sp> (38,912 cycles)
+0195   01C2 FF          adc16:	db	0ffh		; flag mask
+main.asm line 196: Unrecognized instruction: tstr	<0edh,042h>,0832ch,04f88h,0f22bh,0b339h,07e1fh,01563h,0d3h,089h,0465eh
+0196   01C3             	tstr	<0edh,042h>,0832ch,04f88h,0f22bh,0b339h,07e1fh,01563h,0d3h,089h,0465eh
+main.asm line 197: Unrecognized instruction: tstr	<0,038h>,0,0,0,0f821h,0,0,0,0,0		
+0197   01C3             	tstr	<0,038h>,0,0,0,0f821h,0,0,0,0,0		; (1024 cycles)
+main.asm line 198: Unrecognized instruction: tstr	0,0,0,0,-1,-1,-1,0d7h,0,-1		
+0198   01C3             	tstr	0,0,0,0,-1,-1,-1,0d7h,0,-1		; (38 cycles)
+0199   01C3 D4 8A D5 19 	db	0d4h,08ah,0d5h,019h			; expected crc
+main.asm line 200: Unrecognized instruction: tmsg	'<adc,sbc> hl,<bc,de,hl,sp>'
+0200   01C7             	tmsg	'<adc,sbc> hl,<bc,de,hl,sp>'
+0201   01C7             
+0202   01C7             ; add hl,<bc,de,hl,sp> (19,456 cycles)
+0203   01C7 FF          add16:	db	0ffh		; flag mask
+main.asm line 204: Unrecognized instruction: tstr	9,0c4a5h,0c4c7h,0d226h,0a050h,058eah,08566h,0c6h,0deh,09bc9h
+0204   01C8             	tstr	9,0c4a5h,0c4c7h,0d226h,0a050h,058eah,08566h,0c6h,0deh,09bc9h
+main.asm line 205: Unrecognized instruction: tstr	030h,0,0,0,0f821h,0,0,0,0,0		
+0205   01C8             	tstr	030h,0,0,0,0f821h,0,0,0,0,0		; (512 cycles)
+main.asm line 206: Unrecognized instruction: tstr	0,0,0,0,-1,-1,-1,0d7h,0,-1		
+0206   01C8             	tstr	0,0,0,0,-1,-1,-1,0d7h,0,-1		; (38 cycles)
+0207   01C8 D9 A4 CA 05 	db	0d9h,0a4h,0cah,005h			; expected crc
+main.asm line 208: Unrecognized instruction: tmsg	'add hl,<bc,de,hl,sp>'
+0208   01CC             	tmsg	'add hl,<bc,de,hl,sp>'
+0209   01CC             
+0210   01CC             ; add ix,<bc,de,ix,sp> (19,456 cycles)
+0211   01CC FF          add16x:	db	0ffh		; flag mask
+main.asm line 212: Unrecognized instruction: tstr	<0ddh,9>,0ddach,0c294h,0635bh,033d3h,06a76h,0fa20h,094h,068h,036f5h
+0212   01CD             	tstr	<0ddh,9>,0ddach,0c294h,0635bh,033d3h,06a76h,0fa20h,094h,068h,036f5h
+main.asm line 213: Unrecognized instruction: tstr	<0,030h>,0,0,0f821h,0,0,0,0,0,0		
+0213   01CD             	tstr	<0,030h>,0,0,0f821h,0,0,0,0,0,0		; (512 cycles)
+main.asm line 214: Unrecognized instruction: tstr	0,0,0,-1,0,-1,-1,0d7h,0,-1		
+0214   01CD             	tstr	0,0,0,-1,0,-1,-1,0d7h,0,-1		; (38 cycles)
+0215   01CD B1 DF 8E C0 	db	0b1h,0dfh,08eh,0c0h			; expected crc
+main.asm line 216: Unrecognized instruction: tmsg	'add ix,<bc,de,ix,sp>'
+0216   01D1             	tmsg	'add ix,<bc,de,ix,sp>'
+0217   01D1             
+0218   01D1             ; add iy,<bc,de,iy,sp> (19,456 cycles)
+0219   01D1 FF          add16y:	db	0ffh		; flag mask
+main.asm line 220: Unrecognized instruction: tstr	<0fdh,9>,0c7c2h,0f407h,051c1h,03e96h,00bf4h,0510fh,092h,01eh,071eah
+0220   01D2             	tstr	<0fdh,9>,0c7c2h,0f407h,051c1h,03e96h,00bf4h,0510fh,092h,01eh,071eah
+main.asm line 221: Unrecognized instruction: tstr	<0,030h>,0,0f821h,0,0,0,0,0,0,0		
+0221   01D2             	tstr	<0,030h>,0,0f821h,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 222: Unrecognized instruction: tstr	0,0,-1,0,0,-1,-1,0d7h,0,-1		
+0222   01D2             	tstr	0,0,-1,0,0,-1,-1,0d7h,0,-1		; (38 cycles)
+0223   01D2 39 C8 58 9B 	db	039h,0c8h,058h,09bh			; expected crc
+main.asm line 224: Unrecognized instruction: tmsg	'add iy,<bc,de,iy,sp>'
+0224   01D6             	tmsg	'add iy,<bc,de,iy,sp>'
+0225   01D6             
+0226   01D6             ; aluop a,nn (28,672 cycles)
+0227   01D6 FF          alu8i:	db	0ffh		; flag mask
+main.asm line 228: Unrecognized instruction: tstr	0c6h,09140h,07e3ch,07a67h,0df6dh,05b61h,00b29h,010h,066h,085b2h
+0228   01D7             	tstr	0c6h,09140h,07e3ch,07a67h,0df6dh,05b61h,00b29h,010h,066h,085b2h
+main.asm line 229: Unrecognized instruction: tstr	038h,0,0,0,0,0,0,0,-1,0			
+0229   01D7             	tstr	038h,0,0,0,0,0,0,0,-1,0			; (2048 cycles)
+main.asm line 230: Unrecognized instruction: tstr	<0,-1>,0,0,0,0,0,0,0d7h,0,0		
+0230   01D7             	tstr	<0,-1>,0,0,0,0,0,0,0d7h,0,0		; (14 cycles)
+0231   01D7 51 C1 9C 2E 	db	051h,0c1h,09ch,02eh			; expected crc
+main.asm line 232: Unrecognized instruction: tmsg	'aluop a,nn'
+0232   01DB             	tmsg	'aluop a,nn'
+0233   01DB             
+0234   01DB             ; aluop a,<b,c,d,e,h,l,(hl),a> (753,664 cycles)
+0235   01DB FF          alu8r:	db	0ffh		; flag mask
+main.asm line 236: Unrecognized instruction: tstr	080h,0c53eh,0573ah,04c4dh,msbt,0e309h,0a666h,0d0h,03bh,0adbbh
+0236   01DC             	tstr	080h,0c53eh,0573ah,04c4dh,msbt,0e309h,0a666h,0d0h,03bh,0adbbh
+main.asm line 237: Unrecognized instruction: tstr	03fh,0,0,0,0,0,0,0,-1,0			
+0237   01DC             	tstr	03fh,0,0,0,0,0,0,0,-1,0			; (16,384 cycles)
+main.asm line 238: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,0d7h,0,0		
+0238   01DC             	tstr	0,0ffh,0,0,0,-1,-1,0d7h,0,0		; (46 cycles)
+0239   01DC 06 C7 AA 8E 	db	006h,0c7h,0aah,08eh			; expected crc
+main.asm line 240: Unrecognized instruction: tmsg	'aluop a,<b,c,d,e,h,l,(hl),a>'
+0240   01E0             	tmsg	'aluop a,<b,c,d,e,h,l,(hl),a>'
+0241   01E0             
+0242   01E0             ; aluop a,<ixh,ixl,iyh,iyl> (376,832 cycles)
+0243   01E0 FF          alu8rx:	db	0ffh		; flag mask
+main.asm line 244: Unrecognized instruction: tstr	<0ddh,084h>,0d6f7h,0c76eh,0accfh,02847h,022ddh,0c035h,0c5h,038h,0234bh
+0244   01E1             	tstr	<0ddh,084h>,0d6f7h,0c76eh,0accfh,02847h,022ddh,0c035h,0c5h,038h,0234bh
+main.asm line 245: Unrecognized instruction: tstr	<020h,039h>,0,0,0,0,0,0,0,-1,0		
+0245   01E1             	tstr	<020h,039h>,0,0,0,0,0,0,0,-1,0		; (8,192 cycles)
+main.asm line 246: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,0d7h,0,0		
+0246   01E1             	tstr	0,0ffh,0,0,0,-1,-1,0d7h,0,0		; (46 cycles)
+0247   01E1 A8 86 CC 44 	db	0a8h,086h,0cch,044h			; expected crc
+main.asm line 248: Unrecognized instruction: tmsg	'aluop a,<ixh,ixl,iyh,iyl>'
+0248   01E5             	tmsg	'aluop a,<ixh,ixl,iyh,iyl>'
+0249   01E5             
+0250   01E5             ; aluop a,(<ix,iy>+1) (229,376 cycles)
+0251   01E5 FF          alu8x:	db	0ffh		; flag mask
+main.asm line 252: Unrecognized instruction: tstr	<0ddh,086h,1>,090b7h,msbt-1,msbt-1,032fdh,0406eh,0c1dch,045h,06eh,0e5fah
+0252   01E6             	tstr	<0ddh,086h,1>,090b7h,msbt-1,msbt-1,032fdh,0406eh,0c1dch,045h,06eh,0e5fah
+main.asm line 253: Unrecognized instruction: tstr	<020h,038h>,0,1,1,0,0,0,0,-1,0		
+0253   01E6             	tstr	<020h,038h>,0,1,1,0,0,0,0,-1,0		; (16,384 cycles)
+main.asm line 254: Unrecognized instruction: tstr	0,0ffh,0,0,0,0,0,0d7h,0,0		
+0254   01E6             	tstr	0,0ffh,0,0,0,0,0,0d7h,0,0		; (14 cycles)
+0255   01E6 D3 F2 D7 4A 	db	0d3h,0f2h,0d7h,04ah			; expected crc
+main.asm line 256: Unrecognized instruction: tmsg	'aluop a,(<ix,iy>+1)'
+0256   01EA             	tmsg	'aluop a,(<ix,iy>+1)'
+0257   01EA             
+0258   01EA             ; bit n,(<ix,iy>+1) (2048 cycles)
+0259   01EA FF          bitx:	db	0ffh		; flag mask
+main.asm line 260: Unrecognized instruction: tstr	<0ddh,0cbh,1,046h>,02075h,msbt-1,msbt-1,03cfch,0a79ah,03d74h,051h,027h,0ca14h
+0260   01EB             	tstr	<0ddh,0cbh,1,046h>,02075h,msbt-1,msbt-1,03cfch,0a79ah,03d74h,051h,027h,0ca14h
+main.asm line 261: Unrecognized instruction: tstr	<020h,0,0,038h>,0,0,0,0,0,0,053h,0,0	
+0261   01EB             	tstr	<020h,0,0,038h>,0,0,0,0,0,0,053h,0,0	; (256 cycles)
+main.asm line 262: Unrecognized instruction: tstr	0,0ffh,0,0,0,0,0,0,0,0			
+0262   01EB             	tstr	0,0ffh,0,0,0,0,0,0,0,0			; (8 cycles)
+0263   01EB 83 53 4E E1 	db	083h,053h,04eh,0e1h			; expected crc
+main.asm line 264: Unrecognized instruction: tmsg	'bit n,(<ix,iy>+1)'
+0264   01EF             	tmsg	'bit n,(<ix,iy>+1)'
+0265   01EF             
+0266   01EF             ; bit n,<b,c,d,e,h,l,(hl),a> (49,152 cycles)
+0267   01EF FF          bitz80:	db	0ffh		; flag mask
+main.asm line 268: Unrecognized instruction: tstr	<0cbh,040h>,03ef1h,09dfch,07acch,msbt,0be61h,07a86h,050h,024h,01998h
+0268   01F0             	tstr	<0cbh,040h>,03ef1h,09dfch,07acch,msbt,0be61h,07a86h,050h,024h,01998h
+main.asm line 269: Unrecognized instruction: tstr	<0,03fh>,0,0,0,0,0,0,053h,0,0		
+0269   01F0             	tstr	<0,03fh>,0,0,0,0,0,0,053h,0,0		; (1024 cycles)
+main.asm line 270: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,0,-1,0		
+0270   01F0             	tstr	0,0ffh,0,0,0,-1,-1,0,-1,0		; (48 cycles)
+0271   01F0 5E 02 0E 98 	db	05eh,002h,00eh,098h			; expected crc
+main.asm line 272: Unrecognized instruction: tmsg	'bit n,<b,c,d,e,h,l,(hl),a>'
+0272   01F4             	tmsg	'bit n,<b,c,d,e,h,l,(hl),a>'
+0273   01F4             
+0274   01F4             ; cpd<r> (1) (6144 cycles)
+0275   01F4 FF          cpd1:	db	0ffh		; flag mask
+main.asm line 276: Unrecognized instruction: tstr	<0edh,0a9h>,0c7b6h,072b4h,018f6h,msbt+17,08dbdh,1,0c0h,030h,094a3h
+0276   01F5             	tstr	<0edh,0a9h>,0c7b6h,072b4h,018f6h,msbt+17,08dbdh,1,0c0h,030h,094a3h
+main.asm line 277: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,010,0,-1,0		
+0277   01F5             	tstr	<0,010h>,0,0,0,0,0,010,0,-1,0		; (1024 cycles)
+main.asm line 278: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0278   01F5             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0279   01F5 13 4B 62 2D 	db	013h,04bh,062h,02dh			; expected crc
+main.asm line 280: Unrecognized instruction: tmsg	'cpd<r>'
+0280   01F9             	tmsg	'cpd<r>'
+0281   01F9             
+0282   01F9             ; cpi<r> (1) (6144 cycles)
+0283   01F9 FF          cpi1:	db	0ffh		; flag mask
+main.asm line 284: Unrecognized instruction: tstr	<0edh,0a1h>,04d48h,0af4ah,0906bh,msbt,04e71h,1,093h,06ah,0907ch
+0284   01FA             	tstr	<0edh,0a1h>,04d48h,0af4ah,0906bh,msbt,04e71h,1,093h,06ah,0907ch
+main.asm line 285: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,010,0,-1,0		
+0285   01FA             	tstr	<0,010h>,0,0,0,0,0,010,0,-1,0		; (1024 cycles)
+main.asm line 286: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0286   01FA             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0287   01FA 2D A4 2D 19 	db	02dh,0a4h,02dh,019h			; expected crc
+main.asm line 288: Unrecognized instruction: tmsg	'cpi<r>'
+0288   01FE             	tmsg	'cpi<r>'
+0289   01FE             
+0290   01FE             ; <daa,cpl,scf,ccf>
+0291   01FE FF          daa:	db	0ffh		; flag mask
+main.asm line 292: Unrecognized instruction: tstr	027h,02141h,009fah,01d60h,0a559h,08d5bh,09079h,004h,08eh,0299dh
+0292   01FF             	tstr	027h,02141h,009fah,01d60h,0a559h,08d5bh,09079h,004h,08eh,0299dh
+main.asm line 293: Unrecognized instruction: tstr	018h,0,0,0,0,0,0,0d7h,-1,0		
+0293   01FF             	tstr	018h,0,0,0,0,0,0,0d7h,-1,0		; (65,536 cycles)
+main.asm line 294: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,0			
+0294   01FF             	tstr	0,0,0,0,0,0,0,0,0,0			; (1 cycle)
+0295   01FF 6D 2D D2 13 	db	06dh,02dh,0d2h,013h			; expected crc
+main.asm line 296: Unrecognized instruction: tmsg	'<daa,cpl,scf,ccf>'
+0296   0203             	tmsg	'<daa,cpl,scf,ccf>'
+0297   0203             
+0298   0203             ; <inc,dec> a (3072 cycles)
+0299   0203 FF          inca:	db	0ffh		; flag mask
+main.asm line 300: Unrecognized instruction: tstr	03ch,04adfh,0d5d8h,0e598h,08a2bh,0a7b0h,0431bh,044h,05ah,0d030h
+0300   0204             	tstr	03ch,04adfh,0d5d8h,0e598h,08a2bh,0a7b0h,0431bh,044h,05ah,0d030h
+main.asm line 301: Unrecognized instruction: tstr	001h,0,0,0,0,0,0,0,-1,0			
+0301   0204             	tstr	001h,0,0,0,0,0,0,0,-1,0			; (512 cycles)
+main.asm line 302: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0302   0204             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0303   0204 81 FA 81 00 	db	081h,0fah,081h,000h			; expected crc
+main.asm line 304: Unrecognized instruction: tmsg	'<inc,dec> a'
+0304   0208             	tmsg	'<inc,dec> a'
+0305   0208             
+0306   0208             ; <inc,dec> b (3072 cycles)
+0307   0208 FF          incb:	db	0ffh		; flag mask
+main.asm line 308: Unrecognized instruction: tstr	004h,0d623h,0432dh,07a61h,08180h,05a86h,01e85h,086h,058h,09bbbh
+0308   0209             	tstr	004h,0d623h,0432dh,07a61h,08180h,05a86h,01e85h,086h,058h,09bbbh
+main.asm line 309: Unrecognized instruction: tstr	001h,0,0,0,0,0,0ff00h,0,0,0		
+0309   0209             	tstr	001h,0,0,0,0,0,0ff00h,0,0,0		; (512 cycles)
+main.asm line 310: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0310   0209             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0311   0209 77 F3 5A 73 	db	077h,0f3h,05ah,073h			; expected crc
+main.asm line 312: Unrecognized instruction: tmsg	'<inc,dec> b'
+0312   020D             	tmsg	'<inc,dec> b'
+0313   020D             
+0314   020D             ; <inc,dec> bc (1536 cycles)
+0315   020D FF          incbc:	db	0ffh		; flag mask
+main.asm line 316: Unrecognized instruction: tstr	003h,0cd97h,044abh,08dc9h,0e3e3h,011cch,0e8a4h,002h,049h,02a4dh
+0316   020E             	tstr	003h,0cd97h,044abh,08dc9h,0e3e3h,011cch,0e8a4h,002h,049h,02a4dh
+main.asm line 317: Unrecognized instruction: tstr	008h,0,0,0,0,0,0f821h,0,0,0		
+0317   020E             	tstr	008h,0,0,0,0,0,0f821h,0,0,0		; (256 cycles)
+main.asm line 318: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0318   020E             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0319   020E D2 AE 3B EC 	db	0d2h,0aeh,03bh,0ech			; expected crc
+main.asm line 320: Unrecognized instruction: tmsg	'<inc,dec> bc'
+0320   0212             	tmsg	'<inc,dec> bc'
+0321   0212             
+0322   0212             ; <inc,dec> c (3072 cycles)
+0323   0212 FF          incc:	db	0ffh		; flag mask
+main.asm line 324: Unrecognized instruction: tstr	00ch,0d789h,00935h,0055bh,09f85h,08b27h,0d208h,095h,005h,00660h
+0324   0213             	tstr	00ch,0d789h,00935h,0055bh,09f85h,08b27h,0d208h,095h,005h,00660h
+main.asm line 325: Unrecognized instruction: tstr	001h,0,0,0,0,0,0ffh,0,0,0		
+0325   0213             	tstr	001h,0,0,0,0,0,0ffh,0,0,0		; (512 cycles)
+main.asm line 326: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0326   0213             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0327   0213 1A F6 12 A7 	db	01ah,0f6h,012h,0a7h			; expected crc
+main.asm line 328: Unrecognized instruction: tmsg	'<inc,dec> c'
+0328   0217             	tmsg	'<inc,dec> c'
+0329   0217             
+0330   0217             ; <inc,dec> d (3072 cycles)
+0331   0217 FF          incd:	db	0ffh		; flag mask
+main.asm line 332: Unrecognized instruction: tstr	014h,0a0eah,05fbah,065fbh,0981ch,038cch,0debch,043h,05ch,003bdh
+0332   0218             	tstr	014h,0a0eah,05fbah,065fbh,0981ch,038cch,0debch,043h,05ch,003bdh
+main.asm line 333: Unrecognized instruction: tstr	001h,0,0,0,0,0ff00h,0,0,0,0		
+0333   0218             	tstr	001h,0,0,0,0,0ff00h,0,0,0,0		; (512 cycles)
+main.asm line 334: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0334   0218             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0335   0218 D1 46 BF 51 	db	0d1h,046h,0bfh,051h			; expected crc
+main.asm line 336: Unrecognized instruction: tmsg	'<inc,dec> d'
+0336   021C             	tmsg	'<inc,dec> d'
+0337   021C             
+0338   021C             ; <inc,dec> de (1536 cycles)
+0339   021C FF          incde:	db	0ffh		; flag mask
+main.asm line 340: Unrecognized instruction: tstr	013h,0342eh,0131dh,028c9h,00acah,09967h,03a2eh,092h,0f6h,09d54h
+0340   021D             	tstr	013h,0342eh,0131dh,028c9h,00acah,09967h,03a2eh,092h,0f6h,09d54h
+main.asm line 341: Unrecognized instruction: tstr	008h,0,0,0,0,0f821h,0,0,0,0		
+0341   021D             	tstr	008h,0,0,0,0,0f821h,0,0,0,0		; (256 cycles)
+main.asm line 342: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0342   021D             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0343   021D AE C6 D4 2C 	db	0aeh,0c6h,0d4h,02ch			; expected crc
+main.asm line 344: Unrecognized instruction: tmsg	'<inc,dec> de'
+0344   0221             	tmsg	'<inc,dec> de'
+0345   0221             
+0346   0221             ; <inc,dec> e (3072 cycles)
+0347   0221 FF          ince:	db	0ffh		; flag mask
+main.asm line 348: Unrecognized instruction: tstr	01ch,0602fh,04c0dh,02402h,0e2f5h,0a0f4h,0a10ah,013h,032h,05925h
+0348   0222             	tstr	01ch,0602fh,04c0dh,02402h,0e2f5h,0a0f4h,0a10ah,013h,032h,05925h
+main.asm line 349: Unrecognized instruction: tstr	001h,0,0,0,0,0ffh,0,0,0,0		
+0349   0222             	tstr	001h,0,0,0,0,0ffh,0,0,0,0		; (512 cycles)
+main.asm line 350: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0350   0222             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0351   0222 CA 8C 6A C2 	db	0cah,08ch,06ah,0c2h			; expected crc
+main.asm line 352: Unrecognized instruction: tmsg	'<inc,dec> e'
+0352   0226             	tmsg	'<inc,dec> e'
+0353   0226             
+0354   0226             ; <inc,dec> h (3072 cycles)
+0355   0226 FF          inch:	db	0ffh		; flag mask
+main.asm line 356: Unrecognized instruction: tstr	024h,01506h,0f2ebh,0e8ddh,0262bh,011a6h,0bc1ah,017h,006h,02818h
+0356   0227             	tstr	024h,01506h,0f2ebh,0e8ddh,0262bh,011a6h,0bc1ah,017h,006h,02818h
+main.asm line 357: Unrecognized instruction: tstr	001h,0,0,0,0ff00h,0,0,0,0,0		
+0357   0227             	tstr	001h,0,0,0,0ff00h,0,0,0,0,0		; (512 cycles)
+main.asm line 358: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0358   0227             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0359   0227 56 0F 95 5E 	db	056h,00fh,095h,05eh			; expected crc
+main.asm line 360: Unrecognized instruction: tmsg	'<inc,dec> h'
+0360   022B             	tmsg	'<inc,dec> h'
+0361   022B             
+0362   022B             ; <inc,dec> hl (1536 cycles)
+0363   022B FF          inchl:	db	0ffh		; flag mask
+main.asm line 364: Unrecognized instruction: tstr	023h,0c3f4h,007a5h,01b6dh,04f04h,0e2c2h,0822ah,057h,0e0h,0c3e1h
+0364   022C             	tstr	023h,0c3f4h,007a5h,01b6dh,04f04h,0e2c2h,0822ah,057h,0e0h,0c3e1h
+main.asm line 365: Unrecognized instruction: tstr	008h,0,0,0,0f821h,0,0,0,0,0		
+0365   022C             	tstr	008h,0,0,0,0f821h,0,0,0,0,0		; (256 cycles)
+main.asm line 366: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0366   022C             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0367   022C FC 0D 6D 4A 	db	0fch,00dh,06dh,04ah			; expected crc
+main.asm line 368: Unrecognized instruction: tmsg	'<inc,dec> hl'
+0368   0230             	tmsg	'<inc,dec> hl'
+0369   0230             
+0370   0230             ; <inc,dec> ix (1536 cycles)
+0371   0230 FF          incix:	db	0ffh		; flag mask
+main.asm line 372: Unrecognized instruction: tstr	<0ddh,023h>,0bc3ch,00d9bh,0e081h,0adfdh,09a7fh,096e5h,013h,085h,00be2h
+0372   0231             	tstr	<0ddh,023h>,0bc3ch,00d9bh,0e081h,0adfdh,09a7fh,096e5h,013h,085h,00be2h
+main.asm line 373: Unrecognized instruction: tstr	<0,8>,0,0,0f821h,0,0,0,0,0,0		
+0373   0231             	tstr	<0,8>,0,0,0f821h,0,0,0,0,0,0		; (256 cycles)
+main.asm line 374: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0374   0231             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0375   0231 A5 4D BE 31 	db	0a5h,04dh,0beh,031h			; expected crc
+main.asm line 376: Unrecognized instruction: tmsg	'<inc,dec> ix'
+0376   0235             	tmsg	'<inc,dec> ix'
+0377   0235             
+0378   0235             ; <inc,dec> iy (1536 cycles)
+0379   0235 FF          inciy:	db	0ffh		; flag mask
+main.asm line 380: Unrecognized instruction: tstr	<0fdh,023h>,09402h,0637ah,03182h,0c65ah,0b2e9h,0abb4h,016h,0f2h,06d05h
+0380   0236             	tstr	<0fdh,023h>,09402h,0637ah,03182h,0c65ah,0b2e9h,0abb4h,016h,0f2h,06d05h
+main.asm line 381: Unrecognized instruction: tstr	<0,8>,0,0f821h,0,0,0,0,0,0,0		
+0381   0236             	tstr	<0,8>,0,0f821h,0,0,0,0,0,0,0		; (256 cycles)
+main.asm line 382: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0382   0236             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0383   0236 50 5D 51 A3 	db	050h,05dh,051h,0a3h			; expected crc
+main.asm line 384: Unrecognized instruction: tmsg	'<inc,dec> iy'
+0384   023A             	tmsg	'<inc,dec> iy'
+0385   023A             
+0386   023A             ; <inc,dec> l (3072 cycles)
+0387   023A FF          incl:	db	0ffh		; flag mask
+main.asm line 388: Unrecognized instruction: tstr	02ch,08031h,0a520h,04356h,0b409h,0f4c1h,0dfa2h,0d1h,03ch,03ea2h
+0388   023B             	tstr	02ch,08031h,0a520h,04356h,0b409h,0f4c1h,0dfa2h,0d1h,03ch,03ea2h
+main.asm line 389: Unrecognized instruction: tstr	001h,0,0,0,0ffh,0,0,0,0,0		
+0389   023B             	tstr	001h,0,0,0,0ffh,0,0,0,0,0		; (512 cycles)
+main.asm line 390: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0390   023B             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0391   023B A0 A1 B4 9F 	db	0a0h,0a1h,0b4h,09fh			; expected crc
+main.asm line 392: Unrecognized instruction: tmsg	'<inc,dec> l'
+0392   023F             	tmsg	'<inc,dec> l'
+0393   023F             
+0394   023F             ; <inc,dec> (hl) (3072 cycles)
+0395   023F FF          incm:	db	0ffh		; flag mask
+main.asm line 396: Unrecognized instruction: tstr	034h,0b856h,00c7ch,0e53eh,msbt,0877eh,0da58h,015h,05ch,01f37h
+0396   0240             	tstr	034h,0b856h,00c7ch,0e53eh,msbt,0877eh,0da58h,015h,05ch,01f37h
+main.asm line 397: Unrecognized instruction: tstr	001h,0ffh,0,0,0,0,0,0,0,0		
+0397   0240             	tstr	001h,0ffh,0,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 398: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0398   0240             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0399   0240 28 29 5E CE 	db	028h,029h,05eh,0ceh			; expected crc
+main.asm line 400: Unrecognized instruction: tmsg	'<inc,dec> (hl)'
+0400   0244             	tmsg	'<inc,dec> (hl)'
+0401   0244             
+0402   0244             ; <inc,dec> sp (1536 cycles)
+0403   0244 FF          incsp:	db	0ffh		; flag mask
+main.asm line 404: Unrecognized instruction: tstr	033h,0346fh,0d482h,0d169h,0deb6h,0a494h,0f476h,053h,002h,0855bh
+0404   0245             	tstr	033h,0346fh,0d482h,0d169h,0deb6h,0a494h,0f476h,053h,002h,0855bh
+main.asm line 405: Unrecognized instruction: tstr	008h,0,0,0,0,0,0,0,0,0f821h		
+0405   0245             	tstr	008h,0,0,0,0,0,0,0,0,0f821h		; (256 cycles)
+main.asm line 406: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0406   0245             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0407   0245 5D AC D5 27 	db	05dh,0ach,0d5h,027h			; expected crc
+main.asm line 408: Unrecognized instruction: tmsg	'<inc,dec> sp'
+0408   0249             	tmsg	'<inc,dec> sp'
+0409   0249             
+0410   0249             ; <inc,dec> (<ix,iy>+1) (6144 cycles)
+0411   0249 FF          incx:	db	0ffh		; flag mask
+main.asm line 412: Unrecognized instruction: tstr	<0ddh,034h,1>,0fa6eh,msbt-1,msbt-1,02c28h,08894h,05057h,016h,033h,0286fh
+0412   024A             	tstr	<0ddh,034h,1>,0fa6eh,msbt-1,msbt-1,02c28h,08894h,05057h,016h,033h,0286fh
+main.asm line 413: Unrecognized instruction: tstr	<020h,1>,0ffh,0,0,0,0,0,0,0,0		
+0413   024A             	tstr	<020h,1>,0ffh,0,0,0,0,0,0,0,0		; (1024 cycles)
+main.asm line 414: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0414   024A             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0415   024A 0B 95 A8 EA 	db	00bh,095h,0a8h,0eah			; expected crc
+main.asm line 416: Unrecognized instruction: tmsg	'<inc,dec> (<ix,iy>+1)'
+0416   024E             	tmsg	'<inc,dec> (<ix,iy>+1)'
+0417   024E             
+0418   024E             ; <inc,dec> ixh (3072 cycles)
+0419   024E FF          incxh:	db	0ffh		; flag mask
+main.asm line 420: Unrecognized instruction: tstr	<0ddh,024h>,0b838h,0316ch,0c6d4h,03e01h,08358h,015b4h,081h,0deh,04259h
+0420   024F             	tstr	<0ddh,024h>,0b838h,0316ch,0c6d4h,03e01h,08358h,015b4h,081h,0deh,04259h
+main.asm line 421: Unrecognized instruction: tstr	<0,1>,0,0ff00h,0,0,0,0,0,0,0		
+0421   024F             	tstr	<0,1>,0,0ff00h,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 422: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0422   024F             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0423   024F 6F 46 36 62 	db	06fh,046h,036h,062h			; expected crc
+main.asm line 424: Unrecognized instruction: tmsg	'<inc,dec> ixh'
+0424   0253             	tmsg	'<inc,dec> ixh'
+0425   0253             
+0426   0253             ; <inc,dec> ixl (3072 cycles)
+0427   0253 FF          incxl:	db	0ffh		; flag mask
+main.asm line 428: Unrecognized instruction: tstr	<0ddh,02ch>,04d14h,07460h,076d4h,006e7h,032a2h,0213ch,0d6h,0d7h,099a5h
+0428   0254             	tstr	<0ddh,02ch>,04d14h,07460h,076d4h,006e7h,032a2h,0213ch,0d6h,0d7h,099a5h
+main.asm line 429: Unrecognized instruction: tstr	<0,1>,0,0ffh,0,0,0,0,0,0,0		
+0429   0254             	tstr	<0,1>,0,0ffh,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 430: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0430   0254             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0431   0254 02 7B EF 2C 	db	002h,07bh,0efh,02ch			; expected crc
+main.asm line 432: Unrecognized instruction: tmsg	'<inc,dec> ixl'
+0432   0258             	tmsg	'<inc,dec> ixl'
+0433   0258             
+0434   0258             ; <inc,dec> iyh (3072 cycles)
+0435   0258 FF          incyh:	db	0ffh		; flag mask
+main.asm line 436: Unrecognized instruction: tstr	<0ddh,024h>,02836h,09f6fh,09116h,061b9h,082cbh,0e219h,092h,073h,0a98ch
+0436   0259             	tstr	<0ddh,024h>,02836h,09f6fh,09116h,061b9h,082cbh,0e219h,092h,073h,0a98ch
+main.asm line 437: Unrecognized instruction: tstr	<0,1>,0ff00h,0,0,0,0,0,0,0,0		
+0437   0259             	tstr	<0,1>,0ff00h,0,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 438: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0438   0259             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0439   0259 2D 96 6C F3 	db	02dh,096h,06ch,0f3h			; expected crc
+main.asm line 440: Unrecognized instruction: tmsg	'<inc,dec> iyh'
+0440   025D             	tmsg	'<inc,dec> iyh'
+0441   025D             
+0442   025D             ; <inc,dec> iyl (3072 cycles)
+0443   025D FF          incyl:	db	0ffh		; flag mask
+main.asm line 444: Unrecognized instruction: tstr	<0ddh,02ch>,0d7c6h,062d5h,0a09eh,07039h,03e7eh,09f12h,090h,0d9h,0220fh
+0444   025E             	tstr	<0ddh,02ch>,0d7c6h,062d5h,0a09eh,07039h,03e7eh,09f12h,090h,0d9h,0220fh
+main.asm line 445: Unrecognized instruction: tstr	<0,1>,0ffh,0,0,0,0,0,0,0,0		
+0445   025E             	tstr	<0,1>,0ffh,0,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 446: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0446   025E             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0447   025E 36 C1 1E 75 	db	036h,0c1h,01eh,075h			; expected crc
+main.asm line 448: Unrecognized instruction: tmsg	'<inc,dec> iyl'
+0448   0262             	tmsg	'<inc,dec> iyl'
+0449   0262             
+0450   0262             ; ld <bc,de>,(nnnn) (32 cycles)
+0451   0262 FF          ld161:	db	0ffh		; flag mask
+main.asm line 452: Unrecognized instruction: tstr	<0edh,04bh,low msbt,high msbt>,0f9a8h,0f559h,093a4h,0f5edh,06f96h,0d968h,086h,0e6h,04bd8h
+0452   0263             	tstr	<0edh,04bh,low msbt,high msbt>,0f9a8h,0f559h,093a4h,0f5edh,06f96h,0d968h,086h,0e6h,04bd8h
+main.asm line 453: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,0,0,0,0		
+0453   0263             	tstr	<0,010h>,0,0,0,0,0,0,0,0,0		; (2 cycles)
+main.asm line 454: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0454   0263             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0455   0263 4D 45 A9 AC 	db	04dh,045h,0a9h,0ach			; expected crc
+main.asm line 456: Unrecognized instruction: tmsg	'ld <bc,de>,(nnnn)'
+0456   0267             	tmsg	'ld <bc,de>,(nnnn)'
+0457   0267             
+0458   0267             ; ld hl,(nnnn) (16 cycles)
+0459   0267 FF          ld162:	db	0ffh		; flag mask
+main.asm line 460: Unrecognized instruction: tstr	<02ah,low msbt,high msbt>,09863h,07830h,02077h,0b1feh,0b9fah,0abb8h,004h,006h,06015h
+0460   0268             	tstr	<02ah,low msbt,high msbt>,09863h,07830h,02077h,0b1feh,0b9fah,0abb8h,004h,006h,06015h
+main.asm line 461: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,0			
+0461   0268             	tstr	0,0,0,0,0,0,0,0,0,0			; (1 cycle)
+main.asm line 462: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0462   0268             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0463   0268 5F 97 24 87 	db	05fh,097h,024h,087h			; expected crc
+main.asm line 464: Unrecognized instruction: tmsg	'ld hl,(nnnn)'
+0464   026C             	tmsg	'ld hl,(nnnn)'
+0465   026C             
+0466   026C             ; ld sp,(nnnn) (16 cycles)
+0467   026C FF          ld163:	db	0ffh		; flag mask
+main.asm line 468: Unrecognized instruction: tstr	<0edh,07bh,low msbt,high msbt>,08dfch,057d7h,02161h,0ca18h,0c185h,027dah,083h,01eh,0f460h
+0468   026D             	tstr	<0edh,07bh,low msbt,high msbt>,08dfch,057d7h,02161h,0ca18h,0c185h,027dah,083h,01eh,0f460h
+main.asm line 469: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,0			
+0469   026D             	tstr	0,0,0,0,0,0,0,0,0,0			; (1 cycles)
+main.asm line 470: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0470   026D             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0471   026D 7A CE A1 1B 	db	07ah,0ceh,0a1h,01bh			; expected crc
+main.asm line 472: Unrecognized instruction: tmsg	'ld sp,(nnnn)'
+0472   0271             	tmsg	'ld sp,(nnnn)'
+0473   0271             
+0474   0271             ; ld <ix,iy>,(nnnn) (32 cycles)
+0475   0271 FF          ld164:	db	0ffh		; flag mask
+main.asm line 476: Unrecognized instruction: tstr	<0ddh,02ah,low msbt,high msbt>,0ded7h,0a6fah,0f780h,0244ch,087deh,0bcc2h,016h,063h,04c96h
+0476   0272             	tstr	<0ddh,02ah,low msbt,high msbt>,0ded7h,0a6fah,0f780h,0244ch,087deh,0bcc2h,016h,063h,04c96h
+main.asm line 477: Unrecognized instruction: tstr	020h,0,0,0,0,0,0,0,0,0			
+0477   0272             	tstr	020h,0,0,0,0,0,0,0,0,0			; (2 cycles)
+main.asm line 478: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0478   0272             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0479   0272 85 8B F1 6D 	db	085h,08bh,0f1h,06dh			; expected crc
+main.asm line 480: Unrecognized instruction: tmsg	'ld <ix,iy>,(nnnn)'
+0480   0276             	tmsg	'ld <ix,iy>,(nnnn)'
+0481   0276             
+0482   0276             ; ld (nnnn),<bc,de> (64 cycles)
+0483   0276 FF          ld165:	db	0ffh		; flag mask
+main.asm line 484: Unrecognized instruction: tstr	<0edh,043h,low msbt,high msbt>,01f98h,0844dh,0e8ach,0c9edh,0c95dh,08f61h,080h,03fh,0c7bfh
+0484   0277             	tstr	<0edh,043h,low msbt,high msbt>,01f98h,0844dh,0e8ach,0c9edh,0c95dh,08f61h,080h,03fh,0c7bfh
+main.asm line 485: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,0,0,0,0		
+0485   0277             	tstr	<0,010h>,0,0,0,0,0,0,0,0,0		; (2 cycles)
+main.asm line 486: Unrecognized instruction: tstr	0,0,0,0,0,-1,-1,0,0,0			
+0486   0277             	tstr	0,0,0,0,0,-1,-1,0,0,0			; (32 cycles)
+0487   0277 64 1E 87 15 	db	064h,01eh,087h,015h			; expected crc
+main.asm line 488: Unrecognized instruction: tmsg	'ld (nnnn),<bc,de>'
+0488   027B             	tmsg	'ld (nnnn),<bc,de>'
+0489   027B             
+0490   027B             ; ld (nnnn),hl (16 cycles)
+0491   027B FF          ld166:	db	0ffh		; flag mask
+main.asm line 492: Unrecognized instruction: tstr	<022h,low msbt,high msbt>,0d003h,07772h,07f53h,03f72h,064eah,0e180h,010h,02dh,035e9h
+0492   027C             	tstr	<022h,low msbt,high msbt>,0d003h,07772h,07f53h,03f72h,064eah,0e180h,010h,02dh,035e9h
+main.asm line 493: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,0			
+0493   027C             	tstr	0,0,0,0,0,0,0,0,0,0			; (1 cycle)
+main.asm line 494: Unrecognized instruction: tstr	0,0,0,0,-1,0,0,0,0,0			
+0494   027C             	tstr	0,0,0,0,-1,0,0,0,0,0			; (16 cycles)
+0495   027C A3 60 8B 47 	db	0a3h,060h,08bh,047h			; expected crc
+main.asm line 496: Unrecognized instruction: tmsg	'ld (nnnn),hl'
+0496   0280             	tmsg	'ld (nnnn),hl'
+0497   0280             
+0498   0280             ; ld (nnnn),sp (16 cycles)
+0499   0280 FF          ld167:	db	0ffh		; flag mask
+main.asm line 500: Unrecognized instruction: tstr	<0edh,073h,low msbt,high msbt>,0c0dch,0d1d6h,0ed5ah,0f356h,0afdah,06ca7h,044h,09fh,03f0ah
+0500   0281             	tstr	<0edh,073h,low msbt,high msbt>,0c0dch,0d1d6h,0ed5ah,0f356h,0afdah,06ca7h,044h,09fh,03f0ah
+main.asm line 501: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,0			
+0501   0281             	tstr	0,0,0,0,0,0,0,0,0,0			; (1 cycle)
+main.asm line 502: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,-1			
+0502   0281             	tstr	0,0,0,0,0,0,0,0,0,-1			; (16 cycles)
+0503   0281 16 58 5F D7 	db	016h,058h,05fh,0d7h			; expected crc
+main.asm line 504: Unrecognized instruction: tmsg	'ld (nnnn),sp'
+0504   0285             	tmsg	'ld (nnnn),sp'
+0505   0285             
+0506   0285             ; ld (nnnn),<ix,iy> (64 cycles)
+0507   0285 FF          ld168:	db	0ffh		; flag mask
+main.asm line 508: Unrecognized instruction: tstr	<0ddh,022h,low msbt,high msbt>,06cc3h,00d91h,06900h,08ef8h,0e3d6h,0c3f7h,0c6h,0d9h,0c2dfh
+0508   0286             	tstr	<0ddh,022h,low msbt,high msbt>,06cc3h,00d91h,06900h,08ef8h,0e3d6h,0c3f7h,0c6h,0d9h,0c2dfh
+main.asm line 509: Unrecognized instruction: tstr	020h,0,0,0,0,0,0,0,0,0			
+0509   0286             	tstr	020h,0,0,0,0,0,0,0,0,0			; (2 cycles)
+main.asm line 510: Unrecognized instruction: tstr	0,0,-1,-1,0,0,0,0,0,0			
+0510   0286             	tstr	0,0,-1,-1,0,0,0,0,0,0			; (32 cycles)
+0511   0286 BA 10 2A 6B 	db	0bah,010h,02ah,06bh			; expected crc
+main.asm line 512: Unrecognized instruction: tmsg	'ld (nnnn),<ix,iy>'
+0512   028A             	tmsg	'ld (nnnn),<ix,iy>'
+0513   028A             
+0514   028A             ; ld <bc,de,hl,sp>,nnnn (64 cycles)
+0515   028A FF          ld16im:	db	0ffh		; flag mask
+main.asm line 516: Unrecognized instruction: tstr	1,05c1ch,02d46h,08eb9h,06078h,074b1h,0b30eh,046h,0d1h,030cch
+0516   028B             	tstr	1,05c1ch,02d46h,08eb9h,06078h,074b1h,0b30eh,046h,0d1h,030cch
+main.asm line 517: Unrecognized instruction: tstr	030h,0,0,0,0,0,0,0,0,0			
+0517   028B             	tstr	030h,0,0,0,0,0,0,0,0,0			; (4 cycles)
+main.asm line 518: Unrecognized instruction: tstr	<0,0ffh,0ffh>,0,0,0,0,0,0,0,0,0		
+0518   028B             	tstr	<0,0ffh,0ffh>,0,0,0,0,0,0,0,0,0		; (16 cycles)
+0519   028B DE 39 19 69 	db	0deh,039h,019h,069h			; expected crc
+main.asm line 520: Unrecognized instruction: tmsg	'ld <bc,de,hl,sp>,nnnn'
+0520   028F             	tmsg	'ld <bc,de,hl,sp>,nnnn'
+0521   028F             
+0522   028F             ; ld <ix,iy>,nnnn (32 cycles)
+0523   028F FF          ld16ix:	db	0ffh		; flag mask
+main.asm line 524: Unrecognized instruction: tstr	<0ddh,021h>,087e8h,02006h,0bd12h,0b69bh,07253h,0a1e5h,051h,013h,0f1bdh
+0524   0290             	tstr	<0ddh,021h>,087e8h,02006h,0bd12h,0b69bh,07253h,0a1e5h,051h,013h,0f1bdh
+main.asm line 525: Unrecognized instruction: tstr	020h,0,0,0,0,0,0,0,0,0			
+0525   0290             	tstr	020h,0,0,0,0,0,0,0,0,0			; (2 cycles)
+main.asm line 526: Unrecognized instruction: tstr	<0,0,0ffh,0ffh>,0,0,0,0,0,0,0,0,0	
+0526   0290             	tstr	<0,0,0ffh,0ffh>,0,0,0,0,0,0,0,0,0	; (16 cycles)
+0527   0290 22 7D D5 25 	db	022h,07dh,0d5h,025h			; expected crc
+main.asm line 528: Unrecognized instruction: tmsg	'ld <ix,iy>,nnnn'
+0528   0294             	tmsg	'ld <ix,iy>,nnnn'
+0529   0294             
+0530   0294             ; ld a,<(bc),(de)> (44 cycles)
+0531   0294 FF          ld8bd:	db	0ffh		; flag mask
+main.asm line 532: Unrecognized instruction: tstr	00ah,0b3a8h,01d2ah,07f8eh,042ach,msbt,msbt,0c6h,0b1h,0ef8eh
+0532   0295             	tstr	00ah,0b3a8h,01d2ah,07f8eh,042ach,msbt,msbt,0c6h,0b1h,0ef8eh
+main.asm line 533: Unrecognized instruction: tstr	010h,0,0,0,0,0,0,0,0,0			
+0533   0295             	tstr	010h,0,0,0,0,0,0,0,0,0			; (2 cycles)
+main.asm line 534: Unrecognized instruction: tstr	0,0ffh,0,0,0,0,0,0d7h,-1,0		
+0534   0295             	tstr	0,0ffh,0,0,0,0,0,0d7h,-1,0		; (22 cycles)
+0535   0295 B0 81 89 35 	db	0b0h,081h,089h,035h			; expected crc
+main.asm line 536: Unrecognized instruction: tmsg	'ld a,<(bc),(de)>'
+0536   0299             	tmsg	'ld a,<(bc),(de)>'
+0537   0299             
+0538   0299             ; ld <b,c,d,e,h,l,(hl),a>,nn (64 cycles)
+0539   0299 FF          ld8im:	db	0ffh		; flag mask
+main.asm line 540: Unrecognized instruction: tstr	6,0c407h,0f49dh,0d13dh,00339h,0de89h,07455h,053h,0c0h,05509h
+0540   029A             	tstr	6,0c407h,0f49dh,0d13dh,00339h,0de89h,07455h,053h,0c0h,05509h
+main.asm line 541: Unrecognized instruction: tstr	038h,0,0,0,0,0,0,0,0,0			
+0541   029A             	tstr	038h,0,0,0,0,0,0,0,0,0			; (8 cycles)
+main.asm line 542: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,-1,0			
+0542   029A             	tstr	0,0,0,0,0,0,0,0,-1,0			; (8 cycles)
+0543   029A F1 DA B5 56 	db	0f1h,0dah,0b5h,056h			; expected crc
+main.asm line 544: Unrecognized instruction: tmsg	'ld <b,c,d,e,h,l,(hl),a>,nn'
+0544   029E             	tmsg	'ld <b,c,d,e,h,l,(hl),a>,nn'
+0545   029E             
+0546   029E             ; ld (<ix,iy>+1),nn (32 cycles)
+0547   029E FF          ld8imx:	db	0ffh		; flag mask
+main.asm line 548: Unrecognized instruction: tstr	<0ddh,036h,1>,01b45h,msbt-1,msbt-1,0d5c1h,061c7h,0bdc4h,0c0h,085h,0cd16h
+0548   029F             	tstr	<0ddh,036h,1>,01b45h,msbt-1,msbt-1,0d5c1h,061c7h,0bdc4h,0c0h,085h,0cd16h
+main.asm line 549: Unrecognized instruction: tstr	020h,0,0,0,0,0,0,0,0,0			
+0549   029F             	tstr	020h,0,0,0,0,0,0,0,0,0			; (2 cycles)
+main.asm line 550: Unrecognized instruction: tstr	<0,0,0,-1>,0,0,0,0,0,0,0,-1,0		
+0550   029F             	tstr	<0,0,0,-1>,0,0,0,0,0,0,0,-1,0		; (16 cycles)
+0551   029F 26 DB 47 7E 	db	026h,0dbh,047h,07eh			; expected crc
+main.asm line 552: Unrecognized instruction: tmsg	'ld (<ix,iy>+1),nn'
+0552   02A3             	tmsg	'ld (<ix,iy>+1),nn'
+0553   02A3             
+0554   02A3             ; ld <b,c,d,e>,(<ix,iy>+1) (512 cycles)
+0555   02A3 FF          ld8ix1:	db	0ffh		; flag mask
+main.asm line 556: Unrecognized instruction: tstr	<0ddh,046h,1>,0d016h,msbt-1,msbt-1,04260h,07f39h,00404h,097h,04ah,0d085h
+0556   02A4             	tstr	<0ddh,046h,1>,0d016h,msbt-1,msbt-1,04260h,07f39h,00404h,097h,04ah,0d085h
+main.asm line 557: Unrecognized instruction: tstr	<020h,018h>,0,1,1,0,0,0,0,0,0		
+0557   02A4             	tstr	<020h,018h>,0,1,1,0,0,0,0,0,0		; (32 cycles)
+main.asm line 558: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0558   02A4             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0559   02A4 CC 11 06 A8 	db	0cch,011h,006h,0a8h			; expected crc
+main.asm line 560: Unrecognized instruction: tmsg	'ld <b,c,d,e>,(<ix,iy>+1)'
+0560   02A8             	tmsg	'ld <b,c,d,e>,(<ix,iy>+1)'
+0561   02A8             
+0562   02A8             ; ld <h,l>,(<ix,iy>+1) (256 cycles)
+0563   02A8 FF          ld8ix2:	db	0ffh		; flag mask
+main.asm line 564: Unrecognized instruction: tstr	<0ddh,066h,1>,084e0h,msbt-1,msbt-1,09c52h,0a799h,049b6h,093h,000h,0eeadh
+0564   02A9             	tstr	<0ddh,066h,1>,084e0h,msbt-1,msbt-1,09c52h,0a799h,049b6h,093h,000h,0eeadh
+main.asm line 565: Unrecognized instruction: tstr	<020h,008h>,0,1,1,0,0,0,0,0,0		
+0565   02A9             	tstr	<020h,008h>,0,1,1,0,0,0,0,0,0		; (16 cycles)
+main.asm line 566: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0566   02A9             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0567   02A9 FA 2A 4D 03 	db	0fah,02ah,04dh,003h			; expected crc
+main.asm line 568: Unrecognized instruction: tmsg	'ld <h,l>,(<ix,iy>+1)'
+0568   02AD             	tmsg	'ld <h,l>,(<ix,iy>+1)'
+0569   02AD             
+0570   02AD             ; ld a,(<ix,iy>+1) (128 cycles)
+0571   02AD FF          ld8ix3:	db	0ffh		; flag mask
+main.asm line 572: Unrecognized instruction: tstr	<0ddh,07eh,1>,0d8b6h,msbt-1,msbt-1,0c612h,0df07h,09cd0h,043h,0a6h,0a0e5h
+0572   02AE             	tstr	<0ddh,07eh,1>,0d8b6h,msbt-1,msbt-1,0c612h,0df07h,09cd0h,043h,0a6h,0a0e5h
+main.asm line 573: Unrecognized instruction: tstr	020h,0,1,1,0,0,0,0,0,0			
+0573   02AE             	tstr	020h,0,1,1,0,0,0,0,0,0			; (8 cycles)
+main.asm line 574: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,0,0			
+0574   02AE             	tstr	0,-1,0,0,0,0,0,0,0,0			; (16 cycles)
+0575   02AE A5 E9 AC 64 	db	0a5h,0e9h,0ach,064h			; expected crc
+main.asm line 576: Unrecognized instruction: tmsg	'ld a,(<ix,iy>+1)'
+0576   02B2             	tmsg	'ld a,(<ix,iy>+1)'
+0577   02B2             
+0578   02B2             ; ld <ixh,ixl,iyh,iyl>,nn (32 cycles)
+0579   02B2 FF          ld8ixy:	db	0ffh		; flag mask
+main.asm line 580: Unrecognized instruction: tstr	<0ddh,026h>,03c53h,04640h,0e179h,07711h,0c107h,01afah,081h,0adh,05d9bh
+0580   02B3             	tstr	<0ddh,026h>,03c53h,04640h,0e179h,07711h,0c107h,01afah,081h,0adh,05d9bh
+main.asm line 581: Unrecognized instruction: tstr	<020h,8>,0,0,0,0,0,0,0,0,0		
+0581   02B3             	tstr	<020h,8>,0,0,0,0,0,0,0,0,0		; (4 cycles)
+main.asm line 582: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,-1,0			
+0582   02B3             	tstr	0,0,0,0,0,0,0,0,-1,0			; (8 cycles)
+0583   02B3 24 E8 82 8B 	db	024h,0e8h,082h,08bh			; expected crc
+main.asm line 584: Unrecognized instruction: tmsg	'ld <ixh,ixl,iyh,iyl>,nn'
+0584   02B7             	tmsg	'ld <ixh,ixl,iyh,iyl>,nn'
+0585   02B7             
+0586   02B7             ; ld <b,c,d,e,h,l,a>,<b,c,d,e,h,l,a> (3456 cycles)
+0587   02B7 FF          ld8rr:	db	0ffh		; flag mask
+main.asm line 588: Unrecognized instruction: tstr	040h,072a4h,0a024h,061ach,msbt,082c7h,0718fh,097h,08fh,0ef8eh
+0588   02B8             	tstr	040h,072a4h,0a024h,061ach,msbt,082c7h,0718fh,097h,08fh,0ef8eh
+main.asm line 589: Unrecognized instruction: tstr	03fh,0,0,0,0,0,0,0,0,0			
+0589   02B8             	tstr	03fh,0,0,0,0,0,0,0,0,0			; (64 cycles)
+main.asm line 590: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,0d7h,-1,0		
+0590   02B8             	tstr	0,0ffh,0,0,0,-1,-1,0d7h,-1,0		; (54 cycles)
+0591   02B8 74 4B 01 18 	db	074h,04bh,001h,018h			; expected crc
+main.asm line 592: Unrecognized instruction: tmsg	'ld <bcdehla>,<bcdehla>'
+0592   02BC             	tmsg	'ld <bcdehla>,<bcdehla>'
+0593   02BC             
+0594   02BC             ; ld <b,c,d,e,ixy,a>,<b,c,d,e,ixy,a> (6912 cycles)
+0595   02BC FF          ld8rrx:	db	0ffh		; flag mask
+main.asm line 596: Unrecognized instruction: tstr	<0ddh,040h>,0bcc5h,msbt,msbt,msbt,02fc2h,098c0h,083h,01fh,03bcdh
+0596   02BD             	tstr	<0ddh,040h>,0bcc5h,msbt,msbt,msbt,02fc2h,098c0h,083h,01fh,03bcdh
+main.asm line 597: Unrecognized instruction: tstr	<020h,03fh>,0,0,0,0,0,0,0,0,0		
+0597   02BD             	tstr	<020h,03fh>,0,0,0,0,0,0,0,0,0		; (128 cycles)
+main.asm line 598: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,0d7h,-1,0		
+0598   02BD             	tstr	0,0ffh,0,0,0,-1,-1,0d7h,-1,0		; (54 cycles)
+0599   02BD 47 8B A3 6B 	db	047h,08bh,0a3h,06bh			; expected crc
+main.asm line 600: Unrecognized instruction: tmsg	'ld <bcdexya>,<bcdexya>'
+0600   02C1             	tmsg	'ld <bcdexya>,<bcdexya>'
+0601   02C1             
+0602   02C1             ; ld a,(nnnn) / ld (nnnn),a (44 cycles)
+0603   02C1 FF          lda:	db	0ffh		; flag mask
+main.asm line 604: Unrecognized instruction: tstr	<032h,low msbt,high msbt>,0fd68h,0f4ech,044a0h,0b543h,00653h,0cdbah,0d2h,04fh,01fd8h
+0604   02C2             	tstr	<032h,low msbt,high msbt>,0fd68h,0f4ech,044a0h,0b543h,00653h,0cdbah,0d2h,04fh,01fd8h
+main.asm line 605: Unrecognized instruction: tstr	008h,0,0,0,0,0,0,0,0,0			
+0605   02C2             	tstr	008h,0,0,0,0,0,0,0,0,0			; (2 cycle)
+main.asm line 606: Unrecognized instruction: tstr	0,0ffh,0,0,0,0,0,0d7h,-1,0		
+0606   02C2             	tstr	0,0ffh,0,0,0,0,0,0d7h,-1,0		; (22 cycles)
+0607   02C2 C9 26 2D E5 	db	0c9h,026h,02dh,0e5h			; expected crc
+main.asm line 608: Unrecognized instruction: tmsg	'ld a,(nnnn) / ld (nnnn),a'
+0608   02C6             	tmsg	'ld a,(nnnn) / ld (nnnn),a'
+0609   02C6             
+0610   02C6             ; ldd<r> (1) (44 cycles)
+0611   02C6 FF          ldd1:	db	0ffh		; flag mask
+main.asm line 612: Unrecognized instruction: tstr	<0edh,0a8h>,09852h,068fah,066a1h,msbt+3,msbt+1,1,0c1h,068h,020b7h
+0612   02C7             	tstr	<0edh,0a8h>,09852h,068fah,066a1h,msbt+3,msbt+1,1,0c1h,068h,020b7h
+main.asm line 613: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,0,0,0,0		
+0613   02C7             	tstr	<0,010h>,0,0,0,0,0,0,0,0,0		; (2 cycles)
+main.asm line 614: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0d7h,0,0			
+0614   02C7             	tstr	0,-1,0,0,0,0,0,0d7h,0,0			; (22 cycles)
+0615   02C7 94 F4 27 69 	db	094h,0f4h,027h,069h			; expected crc
+main.asm line 616: Unrecognized instruction: tmsg	'ldd<r> (1)'
+0616   02CB             	tmsg	'ldd<r> (1)'
+0617   02CB             
+0618   02CB             ; ldd<r> (2) (44 cycles)
+0619   02CB FF          ldd2:	db	0ffh		; flag mask
+main.asm line 620: Unrecognized instruction: tstr	<0edh,0a8h>,0f12eh,0eb2ah,0d5bah,msbt+3,msbt+1,2,047h,0ffh,0fbe4h
+0620   02CC             	tstr	<0edh,0a8h>,0f12eh,0eb2ah,0d5bah,msbt+3,msbt+1,2,047h,0ffh,0fbe4h
+main.asm line 621: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,0,0,0,0		
+0621   02CC             	tstr	<0,010h>,0,0,0,0,0,0,0,0,0		; (2 cycles)
+main.asm line 622: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0d7h,0,0			
+0622   02CC             	tstr	0,-1,0,0,0,0,0,0d7h,0,0			; (22 cycles)
+0623   02CC 39 DD 3D E1 	db	039h,0ddh,03dh,0e1h			; expected crc
+main.asm line 624: Unrecognized instruction: tmsg	'ldd<r> (2)'
+0624   02D0             	tmsg	'ldd<r> (2)'
+0625   02D0             
+0626   02D0             ; ldi<r> (1) (44 cycles)
+0627   02D0 FF          ldi1:	db	0ffh		; flag mask
+main.asm line 628: Unrecognized instruction: tstr	<0edh,0a0h>,0fe30h,003cdh,06058h,msbt+2,msbt,1,004h,060h,02688h
+0628   02D1             	tstr	<0edh,0a0h>,0fe30h,003cdh,06058h,msbt+2,msbt,1,004h,060h,02688h
+main.asm line 629: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,0,0,0,0		
+0629   02D1             	tstr	<0,010h>,0,0,0,0,0,0,0,0,0		; (2 cycles)
+main.asm line 630: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0d7h,0,0			
+0630   02D1             	tstr	0,-1,0,0,0,0,0,0d7h,0,0			; (22 cycles)
+0631   02D1 F7 82 B0 D1 	db	0f7h,082h,0b0h,0d1h			; expected crc
+main.asm line 632: Unrecognized instruction: tmsg	'ldi<r> (1)'
+0632   02D5             	tmsg	'ldi<r> (1)'
+0633   02D5             
+0634   02D5             ; ldi<r> (2) (44 cycles)
+0635   02D5 FF          ldi2:	db	0ffh		; flag mask
+main.asm line 636: Unrecognized instruction: tstr	<0edh,0a0h>,04aceh,0c26eh,0b188h,msbt+2,msbt,2,014h,02dh,0a39fh
+0636   02D6             	tstr	<0edh,0a0h>,04aceh,0c26eh,0b188h,msbt+2,msbt,2,014h,02dh,0a39fh
+main.asm line 637: Unrecognized instruction: tstr	<0,010h>,0,0,0,0,0,0,0,0,0		
+0637   02D6             	tstr	<0,010h>,0,0,0,0,0,0,0,0,0		; (2 cycles)
+main.asm line 638: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0d7h,0,0			
+0638   02D6             	tstr	0,-1,0,0,0,0,0,0d7h,0,0			; (22 cycles)
+0639   02D6 E9 EA D0 AE 	db	0e9h,0eah,0d0h,0aeh			; expected crc
+main.asm line 640: Unrecognized instruction: tmsg	'ldi<r> (2)'
+0640   02DA             	tmsg	'ldi<r> (2)'
+0641   02DA             
+0642   02DA             ; neg (16,384 cycles)
+0643   02DA FF          neg:	db	0ffh		; flag mask
+main.asm line 644: Unrecognized instruction: tstr	<0edh,044h>,038a2h,05f6bh,0d934h,057e4h,0d2d6h,04642h,043h,05ah,009cch
+0644   02DB             	tstr	<0edh,044h>,038a2h,05f6bh,0d934h,057e4h,0d2d6h,04642h,043h,05ah,009cch
+main.asm line 645: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,-1,0			
+0645   02DB             	tstr	0,0,0,0,0,0,0,0d7h,-1,0			; (16,384 cycles)
+main.asm line 646: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,0,0			
+0646   02DB             	tstr	0,0,0,0,0,0,0,0,0,0			; (1 cycle)
+0647   02DB D6 38 DD 6A 	db	0d6h,038h,0ddh,06ah			; expected crc
+main.asm line 648: Unrecognized instruction: tmsg	'neg'
+0648   02DF             	tmsg	'neg'
+0649   02DF             
+0650   02DF             ; <rld,rrd> (7168 cycles)
+0651   02DF FF          rld:	db	0ffh		; flag mask
+main.asm line 652: Unrecognized instruction: tstr	<0edh,067h>,091cbh,0c48bh,0fa62h,msbt,0e720h,0b479h,040h,006h,08ae2h
+0652   02E0             	tstr	<0edh,067h>,091cbh,0c48bh,0fa62h,msbt,0e720h,0b479h,040h,006h,08ae2h
+main.asm line 653: Unrecognized instruction: tstr	<0,8>,0ffh,0,0,0,0,0,0,0,0		
+0653   02E0             	tstr	<0,8>,0ffh,0,0,0,0,0,0,0,0		; (512 cycles)
+main.asm line 654: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,-1,0			
+0654   02E0             	tstr	0,0,0,0,0,0,0,0d7h,-1,0			; (14 cycles)
+0655   02E0 FF 82 3E 77 	db	0ffh,082h,03eh,077h			; expected crc
+main.asm line 656: Unrecognized instruction: tmsg	'<rrd,rld>'
+0656   02E4             	tmsg	'<rrd,rld>'
+0657   02E4             
+0658   02E4             ; <rlca,rrca,rla,rra> (6144 cycles)
+0659   02E4 FF          rot8080: db	0ffh		; flag mask
+main.asm line 660: Unrecognized instruction: tstr	7,0cb92h,06d43h,00a90h,0c284h,00c53h,0f50eh,091h,0ebh,040fch
+0660   02E5             	tstr	7,0cb92h,06d43h,00a90h,0c284h,00c53h,0f50eh,091h,0ebh,040fch
+main.asm line 661: Unrecognized instruction: tstr	018h,0,0,0,0,0,0,0,-1,0			
+0661   02E5             	tstr	018h,0,0,0,0,0,0,0,-1,0			; (1024 cycles)
+main.asm line 662: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0d7h,0,0			
+0662   02E5             	tstr	0,0,0,0,0,0,0,0d7h,0,0			; (6 cycles)
+0663   02E5 9B A3 80 7C 	db	09bh,0a3h,080h,07ch			; expected crc
+main.asm line 664: Unrecognized instruction: tmsg	'<rlca,rrca,rla,rra>'
+0664   02E9             	tmsg	'<rlca,rrca,rla,rra>'
+0665   02E9             
+0666   02E9             ; shift/rotate (<ix,iy>+1) (416 cycles)
+0667   02E9 FF          rotxy:	db	0ffh		; flag mask
+main.asm line 668: Unrecognized instruction: tstr	<0ddh,0cbh,1,6>,0ddafh,msbt-1,msbt-1,0ff3ch,0dbf6h,094f4h,082h,080h,061d9h
+0668   02EA             	tstr	<0ddh,0cbh,1,6>,0ddafh,msbt-1,msbt-1,0ff3ch,0dbf6h,094f4h,082h,080h,061d9h
+main.asm line 669: Unrecognized instruction: tstr	<020h,0,0,038h>,0,0,0,0,0,0,080h,0,0	
+0669   02EA             	tstr	<020h,0,0,038h>,0,0,0,0,0,0,080h,0,0	; (32 cycles)
+main.asm line 670: Unrecognized instruction: tstr	0,0ffh,0,0,0,0,0,057h,0,0		
+0670   02EA             	tstr	0,0ffh,0,0,0,0,0,057h,0,0		; (13 cycles)
+0671   02EA 71 00 34 CB 	db	071h,000h,034h,0cbh			; expected crc
+main.asm line 672: Unrecognized instruction: tmsg	'shf/rot (<ix,iy>+1)'
+0672   02EE             	tmsg	'shf/rot (<ix,iy>+1)'
+0673   02EE             
+0674   02EE             ; shift/rotate <b,c,d,e,h,l,(hl),a> (6784 cycles)
+0675   02EE FF          rotz80:	db	0ffh		; flag mask
+main.asm line 676: Unrecognized instruction: tstr	0cbh,0ccebh,05d4ah,0e007h,msbt,01395h,030eeh,043h,078h,03dadh
+0676   02EF             	tstr	0cbh,0ccebh,05d4ah,0e007h,msbt,01395h,030eeh,043h,078h,03dadh
+main.asm line 677: Unrecognized instruction: tstr	<0,03fh>,0,0,0,0,0,0,080h,0,0		
+0677   02EF             	tstr	<0,03fh>,0,0,0,0,0,0,080h,0,0		; (128 cycles)
+main.asm line 678: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,057h,-1,0		
+0678   02EF             	tstr	0,0ffh,0,0,0,-1,-1,057h,-1,0		; (53 cycles)
+0679   02EF A4 25 58 33 	db	0a4h,025h,058h,033h			; expected crc
+main.asm line 680: Unrecognized instruction: tmsg	'shf/rot <b,c,d,e,h,l,(hl),a>'
+0680   02F3             	tmsg	'shf/rot <b,c,d,e,h,l,(hl),a>'
+0681   02F3             
+0682   02F3             ; <set,res> n,<b,c,d,e,h,l,(hl),a> (7936 cycles)
+0683   02F3 FF          srz80:	db	0ffh		; flag mask
+main.asm line 684: Unrecognized instruction: tstr	<0cbh,080h>,02cd5h,097abh,039ffh,msbt,0d14bh,06ab2h,053h,027h,0b538h
+0684   02F4             	tstr	<0cbh,080h>,02cd5h,097abh,039ffh,msbt,0d14bh,06ab2h,053h,027h,0b538h
+main.asm line 685: Unrecognized instruction: tstr	<0,07fh>,0,0,0,0,0,0,0,0,0		
+0685   02F4             	tstr	<0,07fh>,0,0,0,0,0,0,0,0,0		; (128 cycles)
+main.asm line 686: Unrecognized instruction: tstr	0,0ffh,0,0,0,-1,-1,0d7h,-1,0		
+0686   02F4             	tstr	0,0ffh,0,0,0,-1,-1,0d7h,-1,0		; (62 cycles)
+0687   02F4 8B 57 F0 08 	db	08bh,057h,0f0h,008h			; expected crc
+main.asm line 688: Unrecognized instruction: tmsg	'<set,res> n,<bcdehl(hl)a>'
+0688   02F8             	tmsg	'<set,res> n,<bcdehl(hl)a>'
+0689   02F8             
+0690   02F8             ; <set,res> n,(<ix,iy>+1) (1792 cycles)
+0691   02F8 FF          srzx:	db	0ffh		; flag mask
+main.asm line 692: Unrecognized instruction: tstr	<0ddh,0cbh,1,086h>,0fb44h,msbt-1,msbt-1,0ba09h,068beh,032d8h,010h,05eh,0a867h
+0692   02F9             	tstr	<0ddh,0cbh,1,086h>,0fb44h,msbt-1,msbt-1,0ba09h,068beh,032d8h,010h,05eh,0a867h
+main.asm line 693: Unrecognized instruction: tstr	<020h,0,0,078h>,0,0,0,0,0,0,0,0,0	
+0693   02F9             	tstr	<020h,0,0,078h>,0,0,0,0,0,0,0,0,0	; (128 cycles)
+main.asm line 694: Unrecognized instruction: tstr	0,0ffh,0,0,0,0,0,0d7h,0,0		
+0694   02F9             	tstr	0,0ffh,0,0,0,0,0,0d7h,0,0		;(14 cycles)
+0695   02F9 CC 63 F9 8A 	db	0cch,063h,0f9h,08ah			; expected crc
+main.asm line 696: Unrecognized instruction: tmsg	'<set,res> n,(<ix,iy>+1)'
+0696   02FD             	tmsg	'<set,res> n,(<ix,iy>+1)'
+0697   02FD             
+0698   02FD             ; ld (<ix,iy>+1),<b,c,d,e> (1024 cycles)
+0699   02FD FF          st8ix1:	db	0ffh		; flag mask
+main.asm line 700: Unrecognized instruction: tstr	<0ddh,070h,1>,0270dh,msbt-1,msbt-1,0b73ah,0887bh,099eeh,086h,070h,0ca07h
+0700   02FE             	tstr	<0ddh,070h,1>,0270dh,msbt-1,msbt-1,0b73ah,0887bh,099eeh,086h,070h,0ca07h
+main.asm line 701: Unrecognized instruction: tstr	<020h,003h>,0,1,1,0,0,0,0,0,0		
+0701   02FE             	tstr	<020h,003h>,0,1,1,0,0,0,0,0,0		; (32 cycles)
+main.asm line 702: Unrecognized instruction: tstr	0,0,0,0,0,-1,-1,0,0,0			
+0702   02FE             	tstr	0,0,0,0,0,-1,-1,0,0,0			; (32 cycles)
+0703   02FE 04 62 6A BF 	db	004h,062h,06ah,0bfh			; expected crc
+main.asm line 704: Unrecognized instruction: tmsg	'ld (<ix,iy>+1),<b,c,d,e>'
+0704   0302             	tmsg	'ld (<ix,iy>+1),<b,c,d,e>'
+0705   0302             
+0706   0302             ; ld (<ix,iy>+1),<h,l> (256 cycles)
+0707   0302 FF          st8ix2:	db	0ffh		; flag mask
+main.asm line 708: Unrecognized instruction: tstr	<0ddh,074h,1>,0b664h,msbt-1,msbt-1,0e8ach,0b5f5h,0aafeh,012h,010h,09566h
+0708   0303             	tstr	<0ddh,074h,1>,0b664h,msbt-1,msbt-1,0e8ach,0b5f5h,0aafeh,012h,010h,09566h
+main.asm line 709: Unrecognized instruction: tstr	<020h,001h>,0,1,1,0,0,0,0,0,0		
+0709   0303             	tstr	<020h,001h>,0,1,1,0,0,0,0,0,0		; (16 cycles)
+main.asm line 710: Unrecognized instruction: tstr	0,0,0,0,-1,0,0,0,0,0			
+0710   0303             	tstr	0,0,0,0,-1,0,0,0,0,0			; (32 cycles)
+0711   0303 6A 1A 88 31 	db	06ah,01ah,088h,031h			; expected crc
+main.asm line 712: Unrecognized instruction: tmsg	'ld (<ix,iy>+1),<h,l>'
+0712   0307             	tmsg	'ld (<ix,iy>+1),<h,l>'
+0713   0307             
+0714   0307             ; ld (<ix,iy>+1),a (64 cycles)
+0715   0307 FF          st8ix3:	db	0ffh		; flag mask
+main.asm line 716: Unrecognized instruction: tstr	<0ddh,077h,1>,067afh,msbt-1,msbt-1,04f13h,00644h,0bcd7h,050h,0ach,05fafh
+0716   0308             	tstr	<0ddh,077h,1>,067afh,msbt-1,msbt-1,04f13h,00644h,0bcd7h,050h,0ach,05fafh
+main.asm line 717: Unrecognized instruction: tstr	020h,0,1,1,0,0,0,0,0,0			
+0717   0308             	tstr	020h,0,1,1,0,0,0,0,0,0			; (8 cycles)
+main.asm line 718: Unrecognized instruction: tstr	0,0,0,0,0,0,0,0,-1,0			
+0718   0308             	tstr	0,0,0,0,0,0,0,0,-1,0			; (8 cycles)
+0719   0308 CC BE 5A 96 	db	0cch,0beh,05ah,096h			; expected crc
+main.asm line 720: Unrecognized instruction: tmsg	'ld (<ix,iy>+1),a'
+0720   030C             	tmsg	'ld (<ix,iy>+1),a'
+0721   030C             
+0722   030C             ; ld (<bc,de>),a (96 cycles)
+0723   030C FF          stabd:	db	0ffh		; flag mask
+main.asm line 724: Unrecognized instruction: tstr	2,00c3bh,0b592h,06cffh,0959eh,msbt,msbt+1,0c1h,021h,0bde7h
+0724   030D             	tstr	2,00c3bh,0b592h,06cffh,0959eh,msbt,msbt+1,0c1h,021h,0bde7h
+main.asm line 725: Unrecognized instruction: tstr	018h,0,0,0,0,0,0,0,0,0			
+0725   030D             	tstr	018h,0,0,0,0,0,0,0,0,0			; (4 cycles)
+main.asm line 726: Unrecognized instruction: tstr	0,-1,0,0,0,0,0,0,-1,0			
+0726   030D             	tstr	0,-1,0,0,0,0,0,0,-1,0			; (24 cycles)
+0727   030D 7A 4C 11 4F 	db	07ah,04ch,011h,04fh			; expected crc
+main.asm line 728: Unrecognized instruction: tmsg	'ld (<bc,de>),a'
+0728   0311             	tmsg	'ld (<bc,de>),a'
+0729   0311             
+0730   0311             ; start test pointed to by (hl)
+0731   0311 E5          stt:	push	hl
+0732   0312 7E          	ld	a,(hl)		; get pointer to test
+0733   0313 23          	inc	hl
+0734   0314 66          	ld	h,(hl)
+0735   0315 6F          	ld	l,a
+0736   0316 7E          	ld	a,(hl)		; flag mask
+0737   0317 32 94 05    	ld	(flgmsk+1),a
+0738   031A 23          	inc	hl
+0739   031B E5          	push	hl
+0740   031C 11 14 00    	ld	de,20
+0741   031F 19          	add	hl,de		; point to incmask
+0742   0320 11 09 05    	ld	de,counter
+0743   0323 CD 78 04    	call	initmask
+0744   0326 E1          	pop	hl
+0745   0327 E5          	push	hl
+0746   0328 11 28 00    	ld	de,20+20
+0747   032B 19          	add	hl,de		; point to scanmask
+0748   032C 11 31 05    	ld	de,shifter
+0749   032F CD 78 04    	call	initmask
+0750   0332 21 31 05    	ld	hl,shifter
+0751   0335 36 01       	ld	(hl),1		; first bit
+0752   0337 E1          	pop	hl
+0753   0338 E5          	push	hl
+0754   0339 11 71 05    	ld	de,iut		; copy initial instruction under test
+0755   033C 01 04 00    	ld	bc,4
+0756   033F ED B0       	ldir
+0757   0341 11 03 01    	ld	de,msbt		; copy initial machine state
+0758   0344 01 10 00    	ld	bc,16
+0759   0347 ED B0       	ldir
+0760   0349 11 2C 00    	ld	de,20+20+4	; skip incmask, scanmask and expcrc
+0761   034C 19          	add	hl,de
+0762   034D EB          	ex	de,hl
+0763   034E 0E 09       	ld	c,9
+0764   0350 CD FD 05    	call	bdos		; show test name
+0765   0353 CD 56 06    	call	initcrc		; initialise crc
+0766   0356             ; test loop
+0767   0356 3A 71 05    tlp:	ld	a,(iut)
+0768   0359 FE 76       	cp	076h		; pragmatically avoid halt intructions
+0769   035B CA 6D 03    	jp	z,tlp2
+0770   035E E6 DF       	and	a,0dfh
+0771   0360 FE DD       	cp	0ddh
+0772   0362 C2 6A 03    	jp	nz,tlp1
+0773   0365 3A 72 05    	ld	a,(iut+1)
+0774   0368 FE 76       	cp	076h
+0775   036A C4 59 05    tlp1:	call	nz,test		; execute the test instruction
+0776   036D CD B8 04    tlp2:	call	count		; increment the counter
+0777   0370 C4 DC 04    	call	nz,shift	; shift the scan bit
+0778   0373 E1          	pop	hl		; pointer to test case
+0779   0374 CA A9 03    	jp	z,tlp3		; done if shift returned NZ
+0780   0377 11 3C 00    	ld	de,20+20+20
+0781   037A 19          	add	hl,de		; point to expected crc
+0782   037B CD 17 06    	call	cmpcrc
+0783   037E 11 0E 06    	ld	de,okmsg
+0784   0381 CA A0 03    	jp	z,tlpok
+0785   0384 11 12 06    	ld	de,ermsg1
+0786   0387 0E 09       	ld	c,9
+0787   0389 CD FD 05    	call	bdos
+0788   038C CD C8 05    	call	phex8
+0789   038F 11 13 06    	ld	de,ermsg2
+0790   0392 0E 09       	ld	c,9
+0791   0394 CD FD 05    	call	bdos
+0792   0397 21 6A 06    	ld	hl,crcval
+0793   039A CD C8 05    	call	phex8
+0794   039D 11 14 06    	ld	de,crlf
+0795   03A0 0E 09       tlpok:	ld	c,9
+0796   03A2 CD FD 05    	call	bdos
+0797   03A5 E1          	pop	hl
+0798   03A6 23          	inc	hl
+0799   03A7 23          	inc	hl
+0800   03A8 C9          	ret
+0801   03A9             
+0802   03A9 E5          tlp3:	push	hl
+0803   03AA 3E 01       	ld	a,1		; initialise count and shift scanners
+0804   03AC 32 1F 04    	ld	(cntbit),a
+0805   03AF 32 43 04    	ld	(shfbit),a
+0806   03B2 21 09 05    	ld	hl,counter
+0807   03B5 22 20 04    	ld	(cntbyt),hl
+0808   03B8 21 31 05    	ld	hl,shifter
+0809   03BB 22 44 04    	ld	(shfbyt),hl
+0810   03BE             
+0811   03BE 06 04       	ld	b,4		; bytes in iut field
+0812   03C0 E1          	pop	hl		; pointer to test case
+0813   03C1 E5          	push	hl
+0814   03C2 11 71 05    	ld	de,iut
+0815   03C5 CD D3 03    	call	setup		; setup iut
+0816   03C8 06 10       	ld	b,16		; bytes in machine state
+0817   03CA 11 03 01    	ld	de,msbt
+0818   03CD CD D3 03    	call	setup		; setup machine state
+0819   03D0 C3 56 03    	jp	tlp
+0820   03D3             
+0821   03D3             ; setup a field of the test case
+0822   03D3             ; b  = number of bytes
+0823   03D3             ; hl = pointer to base case
+0824   03D3             ; de = destination
+0825   03D3 CD DC 03    setup:	call	subyte
+0826   03D6 23          	inc	hl
+0827   03D7 05          	dec	b
+0828   03D8 C2 D3 03    	jp	nz,setup
+0829   03DB C9          	ret
+0830   03DC             
+0831   03DC C5          subyte:	push	bc
+0832   03DD D5          	push	de
+0833   03DE E5          	push	hl
+0834   03DF 4E          	ld	c,(hl)		; get base byte
+0835   03E0 11 14 00    	ld	de,20
+0836   03E3 19          	add	hl,de		; point to incmask
+0837   03E4 7E          	ld	a,(hl)
+0838   03E5 FE 00       	cp	0
+0839   03E7 CA FD 03    	jp	z,subshf
+0840   03EA 06 08       	ld	b,8		; 8 bits
+0841   03EC 0F          subclp:	rrca
+0842   03ED F5          	push	af
+0843   03EE 3E 00       	ld	a,0
+0844   03F0 DC 22 04    	call	c,nxtcbit	; get next counter bit if mask bit was set
+0845   03F3 A9          	xor	c		; flip bit if counter bit was set
+0846   03F4 0F          	rrca
+0847   03F5 4F          	ld	c,a
+0848   03F6 F1          	pop	af
+0849   03F7 05          	dec	b
+0850   03F8 C2 EC 03    	jp	nz,subclp
+0851   03FB 06 08       	ld	b,8
+0852   03FD 11 14 00    subshf:	ld	de,20
+0853   0400 19          	add	hl,de		; point to shift mask
+0854   0401 7E          	ld	a,(hl)
+0855   0402 FE 00       	cp	0
+0856   0404 CA 18 04    	jp	z,substr
+0857   0407 06 08       	ld	b,8		; 8 bits
+0858   0409 0F          sbshf1:	rrca
+0859   040A F5          	push	af
+0860   040B 3E 00       	ld	a,0
+0861   040D DC 46 04    	call	c,nxtsbit	; get next shifter bit if mask bit was set
+0862   0410 A9          	xor	c		; flip bit if shifter bit was set
+0863   0411 0F          	rrca
+0864   0412 4F          	ld	c,a
+0865   0413 F1          	pop	af
+0866   0414 05          	dec	b
+0867   0415 C2 09 04    	jp	nz,sbshf1
+0868   0418 E1          substr:	pop	hl
+0869   0419 D1          	pop	de
+0870   041A 79          	ld	a,c
+0871   041B 12          	ld	(de),a		; mangled byte to destination
+0872   041C 13          	inc	de
+0873   041D C1          	pop	bc
+0874   041E C9          	ret
+0875   041F             
+0876   041F             ; get next counter bit in low bit of a
+0877   041F 00          cntbit:	ds	1
+0878   0420 00          cntbyt:	ds	2
+0879   0422             
+0880   0422 C5          nxtcbit: push	bc
+0881   0423 E5          	push	hl
+0882   0424 2A 20 04    	ld	hl,(cntbyt)
+0883   0427 46          	ld	b,(hl)
+0884   0428 21 1F 04    	ld	hl,cntbit
+0885   042B 7E          	ld	a,(hl)
+0886   042C 4F          	ld	c,a
+0887   042D 07          	rlca
+0888   042E 77          	ld	(hl),a
+0889   042F FE 01       	cp	a,1
+0890   0431 C2 3B 04    	jp	nz,ncb1
+0891   0434 2A 20 04    	ld	hl,(cntbyt)
+0892   0437 23          	inc	hl
+0893   0438 22 20 04    	ld	(cntbyt),hl
+0894   043B 78          ncb1:	ld	a,b
+0895   043C A1          	and	c
+0896   043D E1          	pop	hl
+0897   043E C1          	pop	bc
+0898   043F C8          	ret	z
+0899   0440 3E 01       	ld	a,1
+0900   0442 C9          	ret
+0901   0443             
+0902   0443             ; get next shifter bit in low bit of a
+0903   0443 00          shfbit:	ds	1
+0904   0444 00          shfbyt:	ds	2
+0905   0446             
+0906   0446 C5          nxtsbit: push	bc
+0907   0447 E5          	push	hl
+0908   0448 2A 44 04    	ld	hl,(shfbyt)
+0909   044B 46          	ld	b,(hl)
+0910   044C 21 43 04    	ld	hl,shfbit
+0911   044F 7E          	ld	a,(hl)
+0912   0450 4F          	ld	c,a
+0913   0451 07          	rlca
+0914   0452 77          	ld	(hl),a
+0915   0453 FE 01       	cp	a,1
+0916   0455 C2 5F 04    	jp	nz,nsb1
+0917   0458 2A 44 04    	ld	hl,(shfbyt)
+0918   045B 23          	inc	hl
+0919   045C 22 44 04    	ld	(shfbyt),hl
+0920   045F 78          nsb1:	ld	a,b
+0921   0460 A1          	and	c
+0922   0461 E1          	pop	hl
+0923   0462 C1          	pop	bc
+0924   0463 C8          	ret	z
+0925   0464 3E 01       	ld	a,1
+0926   0466 C9          	ret
+0927   0467             
+0928   0467             
+0929   0467             ; clear memory at hl, bc bytes
+0930   0467 F5          clrmem:	push	af
+0931   0468 C5          	push	bc
+0932   0469 D5          	push	de
+0933   046A E5          	push	hl
+0934   046B 36 00       	ld	(hl),0
+0935   046D 54          	ld	d,h
+0936   046E 5D          	ld	e,l
+0937   046F 13          	inc	de
+0938   0470 0B          	dec	bc
+0939   0471 ED B0       	ldir
+0940   0473 E1          	pop	hl
+0941   0474 D1          	pop	de
+0942   0475 C1          	pop	bc
+0943   0476 F1          	pop	af
+0944   0477 C9          	ret
+0945   0478             
+0946   0478             ; initialise counter or shifter
+0947   0478             ; de = pointer to work area for counter or shifter
+0948   0478             ; hl = pointer to mask
+0949   0478             initmask:
+0950   0478 D5          	push	de
+0951   0479 EB          	ex	de,hl
+0952   047A 01 28 00    	ld	bc,20+20
+0953   047D CD 67 04    	call	clrmem		; clear work area
+0954   0480 EB          	ex	de,hl
+0955   0481 06 14       	ld	b,20		; byte counter
+0956   0483 0E 01       	ld	c,1		; first bit
+0957   0485 16 00       	ld	d,0		; bit counter
+0958   0487 5E          imlp:	ld	e,(hl)
+0959   0488 7B          imlp1:	ld	a,e
+0960   0489 A1          	and	a,c
+0961   048A CA 8E 04    	jp	z,imlp2
+0962   048D 14          	inc	d
+0963   048E 79          imlp2:	ld	a,c
+0964   048F 07          	rlca
+0965   0490 4F          	ld	c,a
+0966   0491 FE 01       	cp	a,1
+0967   0493 C2 88 04    	jp	nz,imlp1
+0968   0496 23          	inc	hl
+0969   0497 05          	dec	b
+0970   0498 C2 87 04    	jp	nz,imlp
+0971   049B             ; got number of 1-bits in mask in reg d
+0972   049B 7A          	ld	a,d
+0973   049C E6 F8       	and	0f8h
+0974   049E 0F          	rrca
+0975   049F 0F          	rrca
+0976   04A0 0F          	rrca			; divide by 8 (get byte offset)
+0977   04A1 6F          	ld	l,a
+0978   04A2 26 00       	ld	h,0
+0979   04A4 7A          	ld	a,d
+0980   04A5 E6 07       	and	a,7		; bit offset
+0981   04A7 3C          	inc	a
+0982   04A8 47          	ld	b,a
+0983   04A9 3E 80       	ld	a,080h
+0984   04AB 07          imlp3:	rlca
+0985   04AC 05          	dec	b
+0986   04AD C2 AB 04    	jp	nz,imlp3
+0987   04B0 D1          	pop	de
+0988   04B1 19          	add	hl,de
+0989   04B2 11 14 00    	ld	de,20
+0990   04B5 19          	add	hl,de
+0991   04B6 77          	ld	(hl),a
+0992   04B7 C9          	ret
+0993   04B8             
+0994   04B8             ; multi-byte counter
+0995   04B8 C5          count:	push	bc
+0996   04B9 D5          	push	de
+0997   04BA E5          	push	hl
+0998   04BB 21 09 05    	ld	hl,counter	; 20 byte counter starts here
+0999   04BE 11 14 00    	ld	de,20		; somewhere in here is the stop bit
+1000   04C1 EB          	ex	de,hl
+1001   04C2 19          	add	hl,de
+1002   04C3 EB          	ex	de,hl
+1003   04C4 34          cntlp:	inc	(hl)
+1004   04C5 7E          	ld	a,(hl)
+1005   04C6 FE 00       	cp	0
+1006   04C8 CA D7 04    	jp	z,cntlp1	; overflow to next byte
+1007   04CB 47          	ld	b,a
+1008   04CC 1A          	ld	a,(de)
+1009   04CD A0          	and	a,b		; test for terminal value
+1010   04CE CA D3 04    	jp	z,cntend
+1011   04D1 36 00       	ld	(hl),0		; reset to zero
+1012   04D3 C1          cntend:	pop	bc
+1013   04D4 D1          	pop	de
+1014   04D5 E1          	pop	hl
+1015   04D6 C9          	ret
+1016   04D7             
+1017   04D7 23          cntlp1:	inc	hl
+1018   04D8 13          	inc	de
+1019   04D9 C3 C4 04    	jp	cntlp
+1020   04DC             
+1021   04DC             
+1022   04DC             ; multi-byte shifter
+1023   04DC C5          shift:	push	bc
+1024   04DD D5          	push	de
+1025   04DE E5          	push	hl
+1026   04DF 21 31 05    	ld	hl,shifter	; 20 byte shift register starts here
+1027   04E2 11 14 00    	ld	de,20		; somewhere in here is the stop bit
+1028   04E5 EB          	ex	de,hl
+1029   04E6 19          	add	hl,de
+1030   04E7 EB          	ex	de,hl
+1031   04E8 7E          shflp:	ld	a,(hl)
+1032   04E9 B7          	or	a
+1033   04EA CA 04 05    	jp	z,shflp1
+1034   04ED 47          	ld	b,a
+1035   04EE 1A          	ld	a,(de)
+1036   04EF A0          	and	b
+1037   04F0 C2 00 05    	jp	nz,shlpe
+1038   04F3 78          	ld	a,b
+1039   04F4 07          	rlca
+1040   04F5 FE 01       	cp	a,1
+1041   04F7 C2 FE 04    	jp	nz,shflp2
+1042   04FA 36 00       	ld	(hl),0
+1043   04FC 23          	inc	hl
+1044   04FD 13          	inc	de
+1045   04FE 77          shflp2:	ld	(hl),a
+1046   04FF AF          	xor	a		; set Z
+1047   0500 E1          shlpe:	pop	hl
+1048   0501 D1          	pop	de
+1049   0502 C1          	pop	bc
+1050   0503 C9          	ret
+1051   0504 23          shflp1:	inc	hl
+1052   0505 13          	inc	de
+1053   0506 C3 E8 04    	jp	shflp
+1054   0509             
+1055   0509 00          counter: ds	2*20
+1056   0531 00          shifter: ds	2*20
+1057   0559             
+1058   0559             ; test harness
+1059   0559 F5          test:	push	af
+1060   055A C5          	push	bc
+1061   055B D5          	push	de
+1062   055C E5          	push	hl
+1063   055D                   if	0
+1064   055D~            	ld	de,crlf
+1065   055D~            	ld	c,9
+1066   055D~            	call	bdos
+1067   055D~            	ld	hl,iut
+1068   055D~            	ld	b,4
+1069   055D~            	call	hexstr
+1070   055D~            	ld	e,' '
+1071   055D~            	ld	c,2
+1072   055D~            	call	bdos
+1073   055D~            	ld	b,16
+1074   055D~            	ld	hl,msbt
+1075   055D~            	call	hexstr
+1076   055D                   endif
+1077   055D F3          	di			; disable interrupts
+1078   055E ED 73 BC 05 	ld	(spsav),sp	; save stack pointer
+1079   0562 31 05 01    	ld	sp,msbt+2	; point to test-case machine state
+1080   0565 FD E1       	pop	iy		; and load all regs
+1081   0567 DD E1       	pop	ix
+1082   0569 E1          	pop	hl
+1083   056A D1          	pop	de
+1084   056B C1          	pop	bc
+1085   056C F1          	pop	af
+1086   056D ED 7B 11 01 	ld	sp,(spbt)
+1087   0571 00          iut:	ds	4		; max 4 byte instruction under test
+1088   0575 ED 73 BA 05 	ld	(spat),sp	; save stack pointer
+1089   0579 31 BA 05    	ld	sp,spat
+1090   057C F5          	push	af		; save other registers
+1091   057D C5          	push	bc
+1092   057E D5          	push	de
+1093   057F E5          	push	hl
+1094   0580 DD E5       	push	ix
+1095   0582 FD E5       	push	iy
+1096   0584 ED 7B BC 05 	ld	sp,(spsav)	; restore stack pointer
+1097   0588 FB          	ei			; enable interrupts
+1098   0589 2A 03 01    	ld	hl,(msbt)	; copy memory operand
+1099   058C 22 AC 05    	ld	(msat),hl
+1100   058F 21 B8 05    	ld	hl,flgsat	; flags after test
+1101   0592 7E          	ld	a,(hl)
+1102   0593 E6 D7       flgmsk:	and	a,0d7h		; mask-out irrelevant bits (self-modified code!)
+1103   0595 77          	ld	(hl),a
+1104   0596 06 10       	ld	b,16		; total of 16 bytes of state
+1105   0598 11 AC 05    	ld	de,msat
+1106   059B 21 6A 06    	ld	hl,crcval
+1107   059E 1A          tcrc:	ld	a,(de)
+1108   059F 13          	inc	de
+1109   05A0 CD 2E 06    	call	updcrc		; accumulate crc of this test case
+1110   05A3 05          	dec	b
+1111   05A4 C2 9E 05    	jp	nz,tcrc
+1112   05A7                   if	0
+1113   05A7~            	ld	e,' '
+1114   05A7~            	ld	c,2
+1115   05A7~            	call	bdos
+1116   05A7~            	ld	hl,crcval
+1117   05A7~            	call	phex8
+1118   05A7~            	ld	de,crlf
+1119   05A7~            	ld	c,9
+1120   05A7~            	call	bdos
+1121   05A7~            	ld	hl,msat
+1122   05A7~            	ld	b,16
+1123   05A7~            	call	hexstr
+1124   05A7~            	ld	de,crlf
+1125   05A7~            	ld	c,9
+1126   05A7~            	call	bdos
+1127   05A7                   endif
+1128   05A7 E1          	pop	hl
+1129   05A8 D1          	pop	de
+1130   05A9 C1          	pop	bc
+1131   05AA F1          	pop	af
+1132   05AB C9          	ret
+1133   05AC             
+1134   05AC             ; machine state after test
+1135   05AC 00          msat:	ds	14	; memop,iy,ix,hl,de,bc,af
+1136   05BA 00          spat:	ds	2	; stack pointer after test
+1137   05BC             flgsat:	equ	spat-2	; flags
+1138   05BC             
+1139   05BC 00          spsav:	ds	2	; saved stack pointer
+1140   05BE             
+1141   05BE             ; display hex string (pointer in hl, byte count in b)
+1142   05BE 7E          hexstr:	ld	a,(hl)
+1143   05BF CD DA 05    	call	phex2
+1144   05C2 23          	inc	hl
+1145   05C3 05          	dec	b
+1146   05C4 C2 BE 05    	jp	nz,hexstr
+1147   05C7 C9          	ret
+1148   05C8             
+1149   05C8             ; display hex
+1150   05C8             ; display the big-endian 32-bit value pointed to by hl
+1151   05C8 F5          phex8:	push	af
+1152   05C9 C5          	push	bc
+1153   05CA E5          	push	hl
+1154   05CB 06 04       	ld	b,4
+1155   05CD 7E          ph8lp:	ld	a,(hl)
+1156   05CE CD DA 05    	call	phex2
+1157   05D1 23          	inc	hl
+1158   05D2 05          	dec	b
+1159   05D3 C2 CD 05    	jp	nz,ph8lp
+1160   05D6 E1          	pop	hl
+1161   05D7 C1          	pop	bc
+1162   05D8 F1          	pop	af
+1163   05D9 C9          	ret
+1164   05DA             
+1165   05DA             ; display byte in a
+1166   05DA F5          phex2:	push	af
+1167   05DB 0F          	rrca
+1168   05DC 0F          	rrca
+1169   05DD 0F          	rrca
+1170   05DE 0F          	rrca
+1171   05DF CD E3 05    	call	phex1
+1172   05E2 F1          	pop	af
+1173   05E3             ; fall through
+1174   05E3             
+1175   05E3             ; display low nibble in a
+1176   05E3 F5          phex1:	push	af
+1177   05E4 C5          	push	bc
+1178   05E5 D5          	push	de
+1179   05E6 E5          	push	hl
+1180   05E7 E6 0F       	and	a,0fh
+1181   05E9 FE 0A       	cp	a,10
+1182   05EB DA F0 05    	jp	c,ph11
+1183   05EE C6 27       	add	a,'a'-'9'-1
+1184   05F0 C6 30       ph11:	add	a,'0'
+1185   05F2 5F          	ld	e,a
+1186   05F3 0E 02       	ld	c,2
+1187   05F5 CD FD 05    	call	bdos
+1188   05F8 E1          	pop	hl
+1189   05F9 D1          	pop	de
+1190   05FA C1          	pop	bc
+1191   05FB F1          	pop	af
+1192   05FC C9          	ret
+1193   05FD             
+1194   05FD F5          bdos	push	af
+1195   05FE C5          	push	bc
+1196   05FF D5          	push	de
+1197   0600 E5          	push	hl
+1198   0601 CD 05 00    	call	5
+1199   0604 E1          	pop	hl
+1200   0605 D1          	pop	de
+1201   0606 C1          	pop	bc
+1202   0607 F1          	pop	af
+1203   0608 C9          	ret
+1204   0609             
+main.asm line 1205: Overflow
+1205   0609 A4 0A 0D 24 msg1:	db	'Z80 instruction exerciser',10,13,'$'
+main.asm line 1206: Overflow
+1206   060D 87          msg2:	db	'Tests complete$'
+main.asm line 1207: Bytes lost
+1207   060E 4B 0A 0D 24 okmsg:	db	'  OK',10,13,'$'
+main.asm line 1208: Overflow
+1208   0612 0B          ermsg1:	db	'  ERROR **** crc expected:$'
+main.asm line 1209: Overflow
+1209   0613 24          ermsg2:	db	' found:$'
+1210   0614 0A 0D 24    crlf:	db	10,13,'$'
+1211   0617             
+1212   0617             ; compare crc
+1213   0617             ; hl points to value to compare to crcval
+1214   0617 C5          cmpcrc:	push	bc
+1215   0618 D5          	push	de
+1216   0619 E5          	push	hl
+1217   061A 11 6A 06    	ld	de,crcval
+1218   061D 06 04       	ld	b,4
+1219   061F 1A          cclp:	ld	a,(de)
+1220   0620 BE          	cp	a,(hl)
+1221   0621 C2 2A 06    	jp	nz,cce
+1222   0624 23          	inc	hl
+1223   0625 13          	inc	de
+1224   0626 05          	dec	b
+1225   0627 C2 1F 06    	jp	nz,cclp
+1226   062A E1          cce:	pop	hl
+1227   062B D1          	pop	de
+1228   062C C1          	pop	bc
+1229   062D C9          	ret
+1230   062E             
+1231   062E             ; 32-bit crc routine
+1232   062E             ; entry: a contains next byte, hl points to crc
+1233   062E             ; exit:  crc updated
+1234   062E F5          updcrc:	push	af
+1235   062F C5          	push	bc
+1236   0630 D5          	push	de
+1237   0631 E5          	push	hl
+1238   0632 E5          	push	hl
+1239   0633 11 03 00    	ld	de,3
+1240   0636 19          	add	hl,de	; point to low byte of old crc
+1241   0637 AE          	xor	a,(hl)	; xor with new byte
+1242   0638 6F          	ld	l,a
+1243   0639 26 00       	ld	h,0
+1244   063B 29          	add	hl,hl	; use result as index into table of 4 byte entries
+1245   063C 29          	add	hl,hl
+1246   063D EB          	ex	de,hl
+1247   063E 21 6E 06    	ld	hl,crctab
+1248   0641 19          	add	hl,de	; point to selected entry in crctab
+1249   0642 EB          	ex	de,hl
+1250   0643 E1          	pop	hl
+1251   0644 01 04 00    	ld	bc,4	; c = byte count, b = accumulator
+1252   0647 1A          crclp:	ld	a,(de)
+1253   0648 A8          	xor	a,b
+1254   0649 46          	ld	b,(hl)
+1255   064A 77          	ld	(hl),a
+1256   064B 13          	inc	de
+1257   064C 23          	inc	hl
+1258   064D 0D          	dec	c
+1259   064E C2 47 06    	jp	nz,crclp
+1260   0651                   if	0
+1261   0651~            	ld	hl,crcval
+1262   0651~            	call	phex8
+1263   0651~            	ld	de,crlf
+1264   0651~            	ld	c,9
+1265   0651~            	call	bdos
+1266   0651                   endif
+1267   0651 E1          	pop	hl
+1268   0652 D1          	pop	de
+1269   0653 C1          	pop	bc
+1270   0654 F1          	pop	af
+1271   0655 C9          	ret
+1272   0656             
+1273   0656 F5          initcrc:push	af
+1274   0657 C5          	push	bc
+1275   0658 E5          	push	hl
+1276   0659 21 6A 06    	ld	hl,crcval
+1277   065C 3E FF       	ld	a,0ffh
+1278   065E 06 04       	ld	b,4
+1279   0660 77          icrclp:	ld	(hl),a
+1280   0661 23          	inc	hl
+1281   0662 05          	dec	b
+1282   0663 C2 60 06    	jp	nz,icrclp
+1283   0666 E1          	pop	hl
+1284   0667 C1          	pop	bc
+1285   0668 F1          	pop	af
+1286   0669 C9          	ret
+1287   066A             
+1288   066A 00          crcval	ds	4
+1289   066E             
+1290   066E 00 00 00 00 crctab:	db	000h,000h,000h,000h
+1291   0672 77 07 30 96 	db	077h,007h,030h,096h
+1292   0676 EE 0E 61 2C 	db	0eeh,00eh,061h,02ch
+1293   067A 99 09 51 BA 	db	099h,009h,051h,0bah
+1294   067E 07 6D C4 19 	db	007h,06dh,0c4h,019h
+1295   0682 70 6A F4 8F 	db	070h,06ah,0f4h,08fh
+1296   0686 E9 63 A5 35 	db	0e9h,063h,0a5h,035h
+1297   068A 9E 64 95 A3 	db	09eh,064h,095h,0a3h
+1298   068E 0E DB 88 32 	db	00eh,0dbh,088h,032h
+1299   0692 79 DC B8 A4 	db	079h,0dch,0b8h,0a4h
+1300   0696 E0 D5 E9 1E 	db	0e0h,0d5h,0e9h,01eh
+1301   069A 97 D2 D9 88 	db	097h,0d2h,0d9h,088h
+1302   069E 09 B6 4C 2B 	db	009h,0b6h,04ch,02bh
+1303   06A2 7E B1 7C BD 	db	07eh,0b1h,07ch,0bdh
+1304   06A6 E7 B8 2D 07 	db	0e7h,0b8h,02dh,007h
+1305   06AA 90 BF 1D 91 	db	090h,0bfh,01dh,091h
+1306   06AE 1D B7 10 64 	db	01dh,0b7h,010h,064h
+1307   06B2 6A B0 20 F2 	db	06ah,0b0h,020h,0f2h
+1308   06B6 F3 B9 71 48 	db	0f3h,0b9h,071h,048h
+1309   06BA 84 BE 41 DE 	db	084h,0beh,041h,0deh
+1310   06BE 1A DA D4 7D 	db	01ah,0dah,0d4h,07dh
+1311   06C2 6D DD E4 EB 	db	06dh,0ddh,0e4h,0ebh
+1312   06C6 F4 D4 B5 51 	db	0f4h,0d4h,0b5h,051h
+1313   06CA 83 D3 85 C7 	db	083h,0d3h,085h,0c7h
+1314   06CE 13 6C 98 56 	db	013h,06ch,098h,056h
+1315   06D2 64 6B A8 C0 	db	064h,06bh,0a8h,0c0h
+1316   06D6 FD 62 F9 7A 	db	0fdh,062h,0f9h,07ah
+1317   06DA 8A 65 C9 EC 	db	08ah,065h,0c9h,0ech
+1318   06DE 14 01 5C 4F 	db	014h,001h,05ch,04fh
+1319   06E2 63 06 6C D9 	db	063h,006h,06ch,0d9h
+1320   06E6 FA 0F 3D 63 	db	0fah,00fh,03dh,063h
+1321   06EA 8D 08 0D F5 	db	08dh,008h,00dh,0f5h
+1322   06EE 3B 6E 20 C8 	db	03bh,06eh,020h,0c8h
+1323   06F2 4C 69 10 5E 	db	04ch,069h,010h,05eh
+1324   06F6 D5 60 41 E4 	db	0d5h,060h,041h,0e4h
+1325   06FA A2 67 71 72 	db	0a2h,067h,071h,072h
+1326   06FE 3C 03 E4 D1 	db	03ch,003h,0e4h,0d1h
+1327   0702 4B 04 D4 47 	db	04bh,004h,0d4h,047h
+1328   0706 D2 0D 85 FD 	db	0d2h,00dh,085h,0fdh
+1329   070A A5 0A B5 6B 	db	0a5h,00ah,0b5h,06bh
+1330   070E 35 B5 A8 FA 	db	035h,0b5h,0a8h,0fah
+1331   0712 42 B2 98 6C 	db	042h,0b2h,098h,06ch
+1332   0716 DB BB C9 D6 	db	0dbh,0bbh,0c9h,0d6h
+1333   071A AC BC F9 40 	db	0ach,0bch,0f9h,040h
+1334   071E 32 D8 6C E3 	db	032h,0d8h,06ch,0e3h
+1335   0722 45 DF 5C 75 	db	045h,0dfh,05ch,075h
+1336   0726 DC D6 0D CF 	db	0dch,0d6h,00dh,0cfh
+1337   072A AB D1 3D 59 	db	0abh,0d1h,03dh,059h
+1338   072E 26 D9 30 AC 	db	026h,0d9h,030h,0ach
+1339   0732 51 DE 00 3A 	db	051h,0deh,000h,03ah
+1340   0736 C8 D7 51 80 	db	0c8h,0d7h,051h,080h
+1341   073A BF D0 61 16 	db	0bfh,0d0h,061h,016h
+1342   073E 21 B4 F4 B5 	db	021h,0b4h,0f4h,0b5h
+1343   0742 56 B3 C4 23 	db	056h,0b3h,0c4h,023h
+1344   0746 CF BA 95 99 	db	0cfh,0bah,095h,099h
+1345   074A B8 BD A5 0F 	db	0b8h,0bdh,0a5h,00fh
+1346   074E 28 02 B8 9E 	db	028h,002h,0b8h,09eh
+1347   0752 5F 05 88 08 	db	05fh,005h,088h,008h
+1348   0756 C6 0C D9 B2 	db	0c6h,00ch,0d9h,0b2h
+1349   075A B1 0B E9 24 	db	0b1h,00bh,0e9h,024h
+1350   075E 2F 6F 7C 87 	db	02fh,06fh,07ch,087h
+1351   0762 58 68 4C 11 	db	058h,068h,04ch,011h
+1352   0766 C1 61 1D AB 	db	0c1h,061h,01dh,0abh
+1353   076A B6 66 2D 3D 	db	0b6h,066h,02dh,03dh
+1354   076E 76 DC 41 90 	db	076h,0dch,041h,090h
+1355   0772 01 DB 71 06 	db	001h,0dbh,071h,006h
+1356   0776 98 D2 20 BC 	db	098h,0d2h,020h,0bch
+1357   077A EF D5 10 2A 	db	0efh,0d5h,010h,02ah
+1358   077E 71 B1 85 89 	db	071h,0b1h,085h,089h
+1359   0782 06 B6 B5 1F 	db	006h,0b6h,0b5h,01fh
+1360   0786 9F BF E4 A5 	db	09fh,0bfh,0e4h,0a5h
+1361   078A E8 B8 D4 33 	db	0e8h,0b8h,0d4h,033h
+1362   078E 78 07 C9 A2 	db	078h,007h,0c9h,0a2h
+1363   0792 0F 00 F9 34 	db	00fh,000h,0f9h,034h
+1364   0796 96 09 A8 8E 	db	096h,009h,0a8h,08eh
+1365   079A E1 0E 98 18 	db	0e1h,00eh,098h,018h
+1366   079E 7F 6A 0D BB 	db	07fh,06ah,00dh,0bbh
+1367   07A2 08 6D 3D 2D 	db	008h,06dh,03dh,02dh
+1368   07A6 91 64 6C 97 	db	091h,064h,06ch,097h
+1369   07AA E6 63 5C 01 	db	0e6h,063h,05ch,001h
+1370   07AE 6B 6B 51 F4 	db	06bh,06bh,051h,0f4h
+1371   07B2 1C 6C 61 62 	db	01ch,06ch,061h,062h
+1372   07B6 85 65 30 D8 	db	085h,065h,030h,0d8h
+1373   07BA F2 62 00 4E 	db	0f2h,062h,000h,04eh
+1374   07BE 6C 06 95 ED 	db	06ch,006h,095h,0edh
+1375   07C2 1B 01 A5 7B 	db	01bh,001h,0a5h,07bh
+1376   07C6 82 08 F4 C1 	db	082h,008h,0f4h,0c1h
+1377   07CA F5 0F C4 57 	db	0f5h,00fh,0c4h,057h
+1378   07CE 65 B0 D9 C6 	db	065h,0b0h,0d9h,0c6h
+1379   07D2 12 B7 E9 50 	db	012h,0b7h,0e9h,050h
+1380   07D6 8B BE B8 EA 	db	08bh,0beh,0b8h,0eah
+1381   07DA FC B9 88 7C 	db	0fch,0b9h,088h,07ch
+1382   07DE 62 DD 1D DF 	db	062h,0ddh,01dh,0dfh
+1383   07E2 15 DA 2D 49 	db	015h,0dah,02dh,049h
+1384   07E6 8C D3 7C F3 	db	08ch,0d3h,07ch,0f3h
+1385   07EA FB D4 4C 65 	db	0fbh,0d4h,04ch,065h
+1386   07EE 4D B2 61 58 	db	04dh,0b2h,061h,058h
+1387   07F2 3A B5 51 CE 	db	03ah,0b5h,051h,0ceh
+1388   07F6 A3 BC 00 74 	db	0a3h,0bch,000h,074h
+1389   07FA D4 BB 30 E2 	db	0d4h,0bbh,030h,0e2h
+1390   07FE 4A DF A5 41 	db	04ah,0dfh,0a5h,041h
+1391   0802 3D D8 95 D7 	db	03dh,0d8h,095h,0d7h
+1392   0806 A4 D1 C4 6D 	db	0a4h,0d1h,0c4h,06dh
+1393   080A D3 D6 F4 FB 	db	0d3h,0d6h,0f4h,0fbh
+1394   080E 43 69 E9 6A 	db	043h,069h,0e9h,06ah
+1395   0812 34 6E D9 FC 	db	034h,06eh,0d9h,0fch
+1396   0816 AD 67 88 46 	db	0adh,067h,088h,046h
+1397   081A DA 60 B8 D0 	db	0dah,060h,0b8h,0d0h
+1398   081E 44 04 2D 73 	db	044h,004h,02dh,073h
+1399   0822 33 03 1D E5 	db	033h,003h,01dh,0e5h
+1400   0826 AA 0A 4C 5F 	db	0aah,00ah,04ch,05fh
+1401   082A DD 0D 7C C9 	db	0ddh,00dh,07ch,0c9h
+1402   082E 50 05 71 3C 	db	050h,005h,071h,03ch
+1403   0832 27 02 41 AA 	db	027h,002h,041h,0aah
+1404   0836 BE 0B 10 10 	db	0beh,00bh,010h,010h
+1405   083A C9 0C 20 86 	db	0c9h,00ch,020h,086h
+1406   083E 57 68 B5 25 	db	057h,068h,0b5h,025h
+1407   0842 20 6F 85 B3 	db	020h,06fh,085h,0b3h
+1408   0846 B9 66 D4 09 	db	0b9h,066h,0d4h,009h
+1409   084A CE 61 E4 9F 	db	0ceh,061h,0e4h,09fh
+1410   084E 5E DE F9 0E 	db	05eh,0deh,0f9h,00eh
+1411   0852 29 D9 C9 98 	db	029h,0d9h,0c9h,098h
+1412   0856 B0 D0 98 22 	db	0b0h,0d0h,098h,022h
+1413   085A C7 D7 A8 B4 	db	0c7h,0d7h,0a8h,0b4h
+1414   085E 59 B3 3D 17 	db	059h,0b3h,03dh,017h
+1415   0862 2E B4 0D 81 	db	02eh,0b4h,00dh,081h
+1416   0866 B7 BD 5C 3B 	db	0b7h,0bdh,05ch,03bh
+1417   086A C0 BA 6C AD 	db	0c0h,0bah,06ch,0adh
+1418   086E ED B8 83 20 	db	0edh,0b8h,083h,020h
+1419   0872 9A BF B3 B6 	db	09ah,0bfh,0b3h,0b6h
+1420   0876 03 B6 E2 0C 	db	003h,0b6h,0e2h,00ch
+1421   087A 74 B1 D2 9A 	db	074h,0b1h,0d2h,09ah
+1422   087E EA D5 47 39 	db	0eah,0d5h,047h,039h
+1423   0882 9D D2 77 AF 	db	09dh,0d2h,077h,0afh
+1424   0886 04 DB 26 15 	db	004h,0dbh,026h,015h
+1425   088A 73 DC 16 83 	db	073h,0dch,016h,083h
+1426   088E E3 63 0B 12 	db	0e3h,063h,00bh,012h
+1427   0892 94 64 3B 84 	db	094h,064h,03bh,084h
+1428   0896 0D 6D 6A 3E 	db	00dh,06dh,06ah,03eh
+1429   089A 7A 6A 5A A8 	db	07ah,06ah,05ah,0a8h
+1430   089E E4 0E CF 0B 	db	0e4h,00eh,0cfh,00bh
+1431   08A2 93 09 FF 9D 	db	093h,009h,0ffh,09dh
+1432   08A6 0A 00 AE 27 	db	00ah,000h,0aeh,027h
+1433   08AA 7D 07 9E B1 	db	07dh,007h,09eh,0b1h
+1434   08AE F0 0F 93 44 	db	0f0h,00fh,093h,044h
+1435   08B2 87 08 A3 D2 	db	087h,008h,0a3h,0d2h
+1436   08B6 1E 01 F2 68 	db	01eh,001h,0f2h,068h
+1437   08BA 69 06 C2 FE 	db	069h,006h,0c2h,0feh
+1438   08BE F7 62 57 5D 	db	0f7h,062h,057h,05dh
+1439   08C2 80 65 67 CB 	db	080h,065h,067h,0cbh
+1440   08C6 19 6C 36 71 	db	019h,06ch,036h,071h
+1441   08CA 6E 6B 06 E7 	db	06eh,06bh,006h,0e7h
+1442   08CE FE D4 1B 76 	db	0feh,0d4h,01bh,076h
+1443   08D2 89 D3 2B E0 	db	089h,0d3h,02bh,0e0h
+1444   08D6 10 DA 7A 5A 	db	010h,0dah,07ah,05ah
+1445   08DA 67 DD 4A CC 	db	067h,0ddh,04ah,0cch
+1446   08DE F9 B9 DF 6F 	db	0f9h,0b9h,0dfh,06fh
+1447   08E2 8E BE EF F9 	db	08eh,0beh,0efh,0f9h
+1448   08E6 17 B7 BE 43 	db	017h,0b7h,0beh,043h
+1449   08EA 60 B0 8E D5 	db	060h,0b0h,08eh,0d5h
+1450   08EE D6 D6 A3 E8 	db	0d6h,0d6h,0a3h,0e8h
+1451   08F2 A1 D1 93 7E 	db	0a1h,0d1h,093h,07eh
+1452   08F6 38 D8 C2 C4 	db	038h,0d8h,0c2h,0c4h
+1453   08FA 4F DF F2 52 	db	04fh,0dfh,0f2h,052h
+1454   08FE D1 BB 67 F1 	db	0d1h,0bbh,067h,0f1h
+1455   0902 A6 BC 57 67 	db	0a6h,0bch,057h,067h
+1456   0906 3F B5 06 DD 	db	03fh,0b5h,006h,0ddh
+1457   090A 48 B2 36 4B 	db	048h,0b2h,036h,04bh
+1458   090E D8 0D 2B DA 	db	0d8h,00dh,02bh,0dah
+1459   0912 AF 0A 1B 4C 	db	0afh,00ah,01bh,04ch
+1460   0916 36 03 4A F6 	db	036h,003h,04ah,0f6h
+1461   091A 41 04 7A 60 	db	041h,004h,07ah,060h
+1462   091E DF 60 EF C3 	db	0dfh,060h,0efh,0c3h
+1463   0922 A8 67 DF 55 	db	0a8h,067h,0dfh,055h
+1464   0926 31 6E 8E EF 	db	031h,06eh,08eh,0efh
+1465   092A 46 69 BE 79 	db	046h,069h,0beh,079h
+1466   092E CB 61 B3 8C 	db	0cbh,061h,0b3h,08ch
+1467   0932 BC 66 83 1A 	db	0bch,066h,083h,01ah
+1468   0936 25 6F D2 A0 	db	025h,06fh,0d2h,0a0h
+1469   093A 52 68 E2 36 	db	052h,068h,0e2h,036h
+1470   093E CC 0C 77 95 	db	0cch,00ch,077h,095h
+1471   0942 BB 0B 47 03 	db	0bbh,00bh,047h,003h
+1472   0946 22 02 16 B9 	db	022h,002h,016h,0b9h
+1473   094A 55 05 26 2F 	db	055h,005h,026h,02fh
+1474   094E C5 BA 3B BE 	db	0c5h,0bah,03bh,0beh
+1475   0952 B2 BD 0B 28 	db	0b2h,0bdh,00bh,028h
+1476   0956 2B B4 5A 92 	db	02bh,0b4h,05ah,092h
+1477   095A 5C B3 6A 04 	db	05ch,0b3h,06ah,004h
+1478   095E C2 D7 FF A7 	db	0c2h,0d7h,0ffh,0a7h
+1479   0962 B5 D0 CF 31 	db	0b5h,0d0h,0cfh,031h
+1480   0966 2C D9 9E 8B 	db	02ch,0d9h,09eh,08bh
+1481   096A 5B DE AE 1D 	db	05bh,0deh,0aeh,01dh
+1482   096E 9B 64 C2 B0 	db	09bh,064h,0c2h,0b0h
+1483   0972 EC 63 F2 26 	db	0ech,063h,0f2h,026h
+1484   0976 75 6A A3 9C 	db	075h,06ah,0a3h,09ch
+1485   097A 02 6D 93 0A 	db	002h,06dh,093h,00ah
+1486   097E 9C 09 06 A9 	db	09ch,009h,006h,0a9h
+1487   0982 EB 0E 36 3F 	db	0ebh,00eh,036h,03fh
+1488   0986 72 07 67 85 	db	072h,007h,067h,085h
+1489   098A 05 00 57 13 	db	005h,000h,057h,013h
+1490   098E 95 BF 4A 82 	db	095h,0bfh,04ah,082h
+1491   0992 E2 B8 7A 14 	db	0e2h,0b8h,07ah,014h
+1492   0996 7B B1 2B AE 	db	07bh,0b1h,02bh,0aeh
+1493   099A 0C B6 1B 38 	db	00ch,0b6h,01bh,038h
+1494   099E 92 D2 8E 9B 	db	092h,0d2h,08eh,09bh
+1495   09A2 E5 D5 BE 0D 	db	0e5h,0d5h,0beh,00dh
+1496   09A6 7C DC EF B7 	db	07ch,0dch,0efh,0b7h
+1497   09AA 0B DB DF 21 	db	00bh,0dbh,0dfh,021h
+1498   09AE 86 D3 D2 D4 	db	086h,0d3h,0d2h,0d4h
+1499   09B2 F1 D4 E2 42 	db	0f1h,0d4h,0e2h,042h
+1500   09B6 68 DD B3 F8 	db	068h,0ddh,0b3h,0f8h
+1501   09BA 1F DA 83 6E 	db	01fh,0dah,083h,06eh
+1502   09BE 81 BE 16 CD 	db	081h,0beh,016h,0cdh
+1503   09C2 F6 B9 26 5B 	db	0f6h,0b9h,026h,05bh
+1504   09C6 6F B0 77 E1 	db	06fh,0b0h,077h,0e1h
+1505   09CA 18 B7 47 77 	db	018h,0b7h,047h,077h
+1506   09CE 88 08 5A E6 	db	088h,008h,05ah,0e6h
+1507   09D2 FF 0F 6A 70 	db	0ffh,00fh,06ah,070h
+1508   09D6 66 06 3B CA 	db	066h,006h,03bh,0cah
+1509   09DA 11 01 0B 5C 	db	011h,001h,00bh,05ch
+1510   09DE 8F 65 9E FF 	db	08fh,065h,09eh,0ffh
+1511   09E2 F8 62 AE 69 	db	0f8h,062h,0aeh,069h
+1512   09E6 61 6B FF D3 	db	061h,06bh,0ffh,0d3h
+1513   09EA 16 6C CF 45 	db	016h,06ch,0cfh,045h
+1514   09EE A0 0A E2 78 	db	0a0h,00ah,0e2h,078h
+1515   09F2 D7 0D D2 EE 	db	0d7h,00dh,0d2h,0eeh
+1516   09F6 4E 04 83 54 	db	04eh,004h,083h,054h
+1517   09FA 39 03 B3 C2 	db	039h,003h,0b3h,0c2h
+1518   09FE A7 67 26 61 	db	0a7h,067h,026h,061h
+1519   0A02 D0 60 16 F7 	db	0d0h,060h,016h,0f7h
+1520   0A06 49 69 47 4D 	db	049h,069h,047h,04dh
+1521   0A0A 3E 6E 77 DB 	db	03eh,06eh,077h,0dbh
+1522   0A0E AE D1 6A 4A 	db	0aeh,0d1h,06ah,04ah
+1523   0A12 D9 D6 5A DC 	db	0d9h,0d6h,05ah,0dch
+1524   0A16 40 DF 0B 66 	db	040h,0dfh,00bh,066h
+1525   0A1A 37 D8 3B F0 	db	037h,0d8h,03bh,0f0h
+1526   0A1E A9 BC AE 53 	db	0a9h,0bch,0aeh,053h
+1527   0A22 DE BB 9E C5 	db	0deh,0bbh,09eh,0c5h
+1528   0A26 47 B2 CF 7F 	db	047h,0b2h,0cfh,07fh
+1529   0A2A 30 B5 FF E9 	db	030h,0b5h,0ffh,0e9h
+1530   0A2E BD BD F2 1C 	db	0bdh,0bdh,0f2h,01ch
+1531   0A32 CA BA C2 8A 	db	0cah,0bah,0c2h,08ah
+1532   0A36 53 B3 93 30 	db	053h,0b3h,093h,030h
+1533   0A3A 24 B4 A3 A6 	db	024h,0b4h,0a3h,0a6h
+1534   0A3E BA D0 36 05 	db	0bah,0d0h,036h,005h
+1535   0A42 CD D7 06 93 	db	0cdh,0d7h,006h,093h
+1536   0A46 54 DE 57 29 	db	054h,0deh,057h,029h
+1537   0A4A 23 D9 67 BF 	db	023h,0d9h,067h,0bfh
+1538   0A4E B3 66 7A 2E 	db	0b3h,066h,07ah,02eh
+1539   0A52 C4 61 4A B8 	db	0c4h,061h,04ah,0b8h
+1540   0A56 5D 68 1B 02 	db	05dh,068h,01bh,002h
+1541   0A5A 2A 6F 2B 94 	db	02ah,06fh,02bh,094h
+1542   0A5E B4 0B BE 37 	db	0b4h,00bh,0beh,037h
+1543   0A62 C3 0C 8E A1 	db	0c3h,00ch,08eh,0a1h
+1544   0A66 5A 05 DF 1B 	db	05ah,005h,0dfh,01bh
+1545   0A6A 2D 02 EF 8D 	db	02dh,002h,0efh,08dh
