@@ -1,0 +1,75 @@
+body {
+  font-family: "Roboto Mono", monospace;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.navbar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 20px;
+}
+
+.navbar__item {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+}
+
+.opcodes {
+  flex: 1;
+  border: 1px solid red;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 20px;
+}
+
+.opcode {
+  flex: 1;
+  display: flex;
+}
+
+.opcode__column {
+  flex: 1;
+}
+
+.registers {
+  flex: 1;
+  border: 1px solid blue;
+  display: flex;
+  flex-direction: column;
+}
+
+.register {
+  flex: 1;
+  display: flex;
+}
+
+.register__name,
+.register__value {
+  flex: 1;
+}
+
+.flags {
+  flex: 1;
+  border: 1px solid yellow;
+}
+
+.memory {
+  flex: 1;
+  border: 1px solid green;
+}

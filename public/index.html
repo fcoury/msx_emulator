@@ -6,6 +6,12 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/lemonadejs/dist/lemonade.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,100;0,200;0,400;1,100;1,200;1,400&family=Roboto:wght@100;300;400;500&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
   <title>RustMSX</title>
 </head>
 
@@ -13,16 +19,14 @@
   <div id="root"></div>
 
   <script>
-    function App() {
+    function Navbar() {
       const self = this;
-      self.status = 'Loading...';
 
       self.update = () => {
         fetch('/status')
           .then(response => response.json())
           .then(data => {
-            console.log('data', data);
-            self.status = JSON.stringify(data);
+            lemonade.dispatch('State', data);
           });
       };
 
@@ -30,22 +34,50 @@
         fetch('/step', { method: 'POST' })
           .then(response => response.json())
           .then(data => {
-            console.log('data', data);
-            self.status = JSON.stringify(data);
+            lemonade.dispatch('State', data);
           });
       };
 
       return `
-          <div>
-            <h1>RustMSX</h1>
-            <p>Status: {{self.status}}</p>
-            <button onclick="self.update()">Refresh</button>
-            <button onclick="self.step()">Step</button>
+        <div class="navbar">
+          <div class="navbar__item"><button onclick="self.update()">Refresh</button></div>
+          <div class="navbar__item"><button onclick="self.step()">Step</button></div>
+        </div>
+      `;
+    }
+
+    function Code() {
+      const self = this;
+
+      lemonade.set('Code', self);
+
+      return `
+        <div class="opcodes">
+          <div class="opcode">
+            <div class="opcode__column opcode__address">0001</div>
+            <div class="opcode__column opcode__hex">C3 12 0D</div>
+            <div class="opcode__column opcode__instruction">JP</div>
+            <div class="opcode__column opcode__args">#0d12</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function App() {
+      const self = this;
+      self.status = 'Loading...';
+
+      return `
+          <div class="container">
+            <Navbar />
+            <div class="main">
+              <Code />
+            </div>
           </div>
         `;
     }
 
-    // Render the component
+    lemonade.setComponents({ Code, Navbar });
     lemonade.render(App, document.getElementById('root'));
   </script>
 </body>

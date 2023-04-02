@@ -55,8 +55,12 @@ fn get_status(msx: &Msx) -> Json<serde_json::Value> {
         "e": format!("0x{:02X}", msx.cpu.e),
         "h": format!("0x{:02X}", msx.cpu.h),
         "l": format!("0x{:02X}", msx.cpu.l),
+        "af": format!("0x{:04X}", msx.cpu.get_af()),
+        "bc": format!("0x{:04X}", msx.cpu.get_bc()),
+        "de": format!("0x{:04X}", msx.cpu.get_de()),
         "hl": format!("0x{:04X}", msx.cpu.get_hl()),
         "pc": format!("0x{:04X}", msx.cpu.pc),
+        "sp": format!("0x{:04X}", msx.cpu.sp),
         "instruction": instr.name(),
         "opcode": instr.opcode_with_args(),
     }))

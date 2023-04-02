@@ -2234,15 +2234,15 @@ impl Z80 {
         // NOP does nothing, so this function is empty
     }
 
-    fn get_af(&self) -> u16 {
+    pub fn get_af(&self) -> u16 {
         u16::from(self.a) << 8 | u16::from(self.f)
     }
 
-    fn get_bc(&self) -> u16 {
+    pub fn get_bc(&self) -> u16 {
         (self.b as u16) << 8 | self.c as u16
     }
 
-    fn get_de(&self) -> u16 {
+    pub fn get_de(&self) -> u16 {
         (self.d as u16) << 8 | self.e as u16
     }
 
@@ -2250,12 +2250,12 @@ impl Z80 {
         (self.h as u16) << 8 | self.l as u16
     }
 
-    fn get_ix_d(&self, d: u8) -> u16 {
+    pub fn get_ix_d(&self, d: u8) -> u16 {
         let displacement = d as i8 as u16;
         self.ix.wrapping_add(displacement)
     }
 
-    fn get_iy_d(&self, d: u8) -> u16 {
+    pub fn get_iy_d(&self, d: u8) -> u16 {
         let displacement = d as i8 as u16;
         self.iy.wrapping_add(displacement)
     }
