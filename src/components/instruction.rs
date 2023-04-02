@@ -24,6 +24,21 @@ impl Instruction {
         self.as_def().0
     }
 
+    pub fn len(&self) -> u8 {
+        self.as_def().1
+    }
+
+    pub fn as_hex_vector(&self) -> Vec<String> {
+        let (_, length) = self.as_def();
+        let mut res = Vec::new();
+        res.push(format!("{:02X}", self.opcode));
+        for i in 1..length {
+            let arg = self.memory.read_byte(self.pc + i as u16);
+            res.push(format!("{:02X}", arg));
+        }
+        res
+    }
+
     pub fn opcode_with_args(&self) -> String {
         let (_, length) = self.as_def();
         let mut args = String::new();
@@ -32,7 +47,7 @@ impl Instruction {
             args.push_str(&format!("{:02X} ", arg));
         }
 
-        format!("{:02X} {:<10}", self.opcode, args)
+        format!("{:02X} {}", self.opcode, args)
     }
 
     pub fn as_def(&self) -> (&str, u8) {

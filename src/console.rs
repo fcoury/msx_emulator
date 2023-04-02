@@ -9,7 +9,7 @@ use axum::{
     routing::{get, post},
     Extension, Json, Router,
 };
-use axum_extra::routing::SpaRouter;
+use serde_json::json;
 
 use crate::{components::instruction::Instruction, msx::Msx};
 
@@ -29,9 +29,11 @@ impl Console {
 
         let msx = Arc::new(RwLock::new(msx));
         let app = Router::new()
-            .route("/status", get(index))
-            .route("/step", post(step))
-            .merge(SpaRouter::new("/", "public").index_file("index.html"))
+            .route("/api/status", get(index))
+            .route("/api/step", post(step))
+            .route("/api/program", get(program))
+            .route("/api/memory", get(memory))
+            // .merge(SpaRouter::new("/", "public").index_file("index.html"))
             .layer(Extension(msx));
 
         axum::Server::bind(&self.addr)
@@ -42,25 +44,60 @@ impl Console {
     }
 }
 
+#[debug_handler]
+async fn memory(Extension(msx): Extension<Arc<RwLock<Msx>>>) -> Json<serde_json::Value> {
+    let msx = msx.read().unwrap();
+    Json(json!(msx.cpu.memory.data))
+}
+
+#[debug_handler]
+async fn program(Extension(msx): Extension<Arc<RwLock<Msx>>>) -> Json<Vec<serde_json::Value>> {
+    let msx = msx.read().unwrap();
+    let mut program = Vec::new();
+    let mut pc = msx.cpu.pc;
+
+    loop {
+        if pc.checked_add(1).is_none() {
+            break;
+        }
+
+        if program.len() > 100 {
+            break;
+        }
+
+        let instr = Instruction::parse(&msx.cpu.memory, pc);
+        program.push(json!({
+            "address": format!("{:04X}", pc),
+            "instruction": instr.name(),
+            "hexcontents": instr.opcode_with_args(),
+        }));
+        pc += instr.len() as u16;
+    }
+
+    Json(program)
+}
+
 fn get_status(msx: &Msx) -> Json<serde_json::Value> {
     let instr = Instruction::parse(&msx.cpu.memory, msx.cpu.pc);
     Json(serde_json::json!({
-        "pc": format!("0x{:04X}", msx.cpu.pc),
+        "registers": vec![
+            json!({"name": "pc", "value": format!("0x{:04X}", msx.cpu.pc)}),
+            json!({"name": "a", "value": format!("0x{:02X}", msx.cpu.a)}),
+            json!({"name": "f", "value": format!("0x{:02X}", msx.cpu.f)}),
+            json!({"name": "b", "value": format!("0x{:02X}", msx.cpu.b)}),
+            json!({"name": "c", "value": format!("0x{:02X}", msx.cpu.c)}),
+            json!({"name": "d", "value": format!("0x{:02X}", msx.cpu.d)}),
+            json!({"name": "e", "value": format!("0x{:02X}", msx.cpu.e)}),
+            json!({"name": "h", "value": format!("0x{:02X}", msx.cpu.h)}),
+            json!({"name": "l", "value": format!("0x{:02X}", msx.cpu.l)}),
+            json!({"name": "af", "value": format!("0x{:04X}", msx.cpu.get_af())}),
+            json!({"name": "bc", "value": format!("0x{:04X}", msx.cpu.get_bc())}),
+            json!({"name": "de", "value": format!("0x{:04X}", msx.cpu.get_de())}),
+            json!({"name": "hl", "value": format!("0x{:04X}", msx.cpu.get_hl())}),
+            json!({"name": "sp", "value": format!("0x{:04X}", msx.cpu.sp)}),
+        ],
+        "pc": format!("{:04X}", msx.cpu.pc),
         "cycles": msx.cpu.cycles,
-        "a": format!("0x{:02X}", msx.cpu.a),
-        "f": format!("0x{:02X}", msx.cpu.f),
-        "b": format!("0x{:02X}", msx.cpu.b),
-        "c": format!("0x{:02X}", msx.cpu.c),
-        "d": format!("0x{:02X}", msx.cpu.d),
-        "e": format!("0x{:02X}", msx.cpu.e),
-        "h": format!("0x{:02X}", msx.cpu.h),
-        "l": format!("0x{:02X}", msx.cpu.l),
-        "af": format!("0x{:04X}", msx.cpu.get_af()),
-        "bc": format!("0x{:04X}", msx.cpu.get_bc()),
-        "de": format!("0x{:04X}", msx.cpu.get_de()),
-        "hl": format!("0x{:04X}", msx.cpu.get_hl()),
-        "pc": format!("0x{:04X}", msx.cpu.pc),
-        "sp": format!("0x{:04X}", msx.cpu.sp),
         "instruction": instr.name(),
         "opcode": instr.opcode_with_args(),
     }))
