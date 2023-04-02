@@ -53,7 +53,7 @@ pub struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let log_level = "info";
+    let log_level = "msx_emulator=trace,info";
     let subscriber = FmtSubscriber::builder()
         .with_env_filter(
             EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new(log_level))?,
@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
                 .enable_all()
                 .build()?
                 .block_on(async {
-                    let console = console::Console::new(addr);
+                    let console = console::Console::new(addr, cli.rom_path);
                     console.start().await
                 })?;
             return Ok(());

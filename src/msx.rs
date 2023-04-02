@@ -36,6 +36,7 @@ pub struct Msx {
 
 impl Msx {
     pub fn new() -> Self {
+        println!("Initializing MSX...");
         let bus = Arc::new(RwLock::new(Bus::new()));
         let memory = Memory::new(bus.clone(), 64 * 1024);
         let cpu = Z80::new(bus, memory);

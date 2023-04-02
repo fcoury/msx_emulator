@@ -78,7 +78,7 @@ pub struct Z80 {
     // Debug options
     pub max_cycles: Option<u64>,
     pub track_flags: bool,
-    cycles: u64,
+    pub cycles: u64,
     last_f: u8,
 }
 
@@ -188,6 +188,7 @@ impl Z80 {
     pub fn execute_cycle(&mut self) {
         self.cycles += 1;
         if self.halted {
+            info!("Halted");
             return;
         }
 
@@ -199,6 +200,7 @@ impl Z80 {
         }
 
         if self.interrupt_request && self.iff1 {
+            info!("Interrupt request");
             self.interrupt_request = false;
             self.iff1 = false;
             self.push(self.pc);
@@ -2228,7 +2230,7 @@ impl Z80 {
         (self.d as u16) << 8 | self.e as u16
     }
 
-    fn get_hl(&self) -> u16 {
+    pub fn get_hl(&self) -> u16 {
         (self.h as u16) << 8 | self.l as u16
     }
 
