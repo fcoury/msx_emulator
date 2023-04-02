@@ -81,7 +81,7 @@ body {
 }
 
 .status {
-  flex: 2;
+  flex: 3;
   display: flex;
   flex-direction: column;
 }
@@ -111,7 +111,12 @@ body {
   background-color: var(--dark-4);
 }
 
-.opcode__column {
+.opcode__address {
+  margin-right: 15px;
+}
+
+.opcode__hex,
+.opcode__instruction {
   flex: 1;
 }
 
@@ -123,6 +128,10 @@ body {
 /* .register__name,
 .register__value {
 } */
+
+.register__value {
+  border-top: 1px solid var(--text-4);
+}
 
 .flags {
   flex: 1;

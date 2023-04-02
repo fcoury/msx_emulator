@@ -5,10 +5,11 @@ export default function Program() {
   const fetchProgram = useStore((state) => state.fetchProgram);
   const program = useStore((state) => state.program);
   const status = useStore((state) => state.status);
+  const addresses = program.map((c) => c.address);
 
   useEffect(() => {
     fetchProgram();
-  }, [status?.pc]);
+  }, [addresses && addresses.includes(status?.pc)]);
 
   if (!program) return null;
   if (!status) return null;
