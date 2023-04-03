@@ -97,6 +97,12 @@ impl Msx {
         Ok(())
     }
 
+    pub fn reset(&mut self) {
+        self.cpu.reset();
+        self.vdp.reset();
+        self.psg.reset();
+    }
+
     pub fn run(&mut self) -> anyhow::Result<()> {
         // let Some(display) = self.display else {
         //     bail!("Display not initialized");

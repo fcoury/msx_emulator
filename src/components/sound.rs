@@ -18,6 +18,12 @@ impl AY38910 {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.registers = [0; 16];
+        self.selected_register = 0;
+        // ... (Reset other fields)
+    }
+
     pub fn generate_sample(&mut self) -> f32 {
         // Generate a single audio sample
         todo!()

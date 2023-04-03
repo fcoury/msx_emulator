@@ -147,6 +147,8 @@ impl Z80 {
         self.e = 0xff;
         self.h = 0xff;
         self.l = 0xff;
+        self.a_alt = 0;
+        self.f_alt = 0;
         self.b_alt = 0;
         self.c_alt = 0;
         self.d_alt = 0;
@@ -160,6 +162,13 @@ impl Z80 {
         self.iff1 = false;
         self.iff2 = false;
         self.im = 0;
+        self.interrupt_request = false;
+        self.halted = false;
+        self.max_cycles = None;
+        self.track_flags = false;
+        self.cycles = 0;
+        self.last_f = 0;
+        self.memory.reset();
     }
 
     pub fn get_internal_state(&self) -> InternalState {

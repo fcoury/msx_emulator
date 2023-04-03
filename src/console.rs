@@ -30,9 +30,10 @@ impl Console {
         let msx = Arc::new(RwLock::new(msx));
         let app = Router::new()
             .route("/api/status", get(index))
-            .route("/api/step", post(step))
             .route("/api/program", get(program))
             .route("/api/memory", get(memory))
+            .route("/api/step", post(step))
+            .route("/api/reset", post(reset))
             // .merge(SpaRouter::new("/", "public").index_file("index.html"))
             .layer(Extension(msx));
 
@@ -116,5 +117,12 @@ async fn step(Extension(msx): Extension<Arc<RwLock<Msx>>>) -> Json<serde_json::V
     println!("pc: 0x{:04X}", msx.cpu.pc);
     msx.cpu.execute_cycle();
     println!("pc: 0x{:04X}", msx.cpu.pc);
+    get_status(&msx)
+}
+
+#[debug_handler]
+async fn reset(Extension(msx): Extension<Arc<RwLock<Msx>>>) -> Json<serde_json::Value> {
+    let mut msx = msx.write().unwrap();
+    msx.cpu.reset();
     get_status(&msx)
 }

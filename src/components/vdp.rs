@@ -59,6 +59,26 @@ impl TMS9918 {
         Self::default()
     }
 
+    pub fn reset(&mut self) {
+        self.vram = [0; 0x4000];
+        self.data_pre_read = 0;
+        self.registers = [0; 8];
+        self.status = 0;
+        self.address = 0;
+        self.first_write = None;
+        self.screen_buffer = [0; 256 * 192];
+        self.sprites = [Sprite {
+            x: 0,
+            y: 0,
+            pattern: 0,
+            color: 0,
+            collision: false,
+        }; 8];
+        self.frame = 0;
+        self.line = 0;
+        self.vblank = false;
+    }
+
     // Pattern Table Base Address = register 2 * 0x400
     pub fn pattern_table(&self) -> &[u8] {
         let base_address = self.registers[2] as usize * 0x400;

@@ -20,8 +20,20 @@ impl Instruction {
         }
     }
 
-    pub fn name(&self) -> &str {
-        self.as_def().0
+    pub fn name(&self) -> String {
+        let name = self.as_def().0;
+        if name.contains('$') {
+            // finds $1, $2, $3, etc and replaces with pc + n
+            let mut name = name.to_string();
+            let mut i = 1;
+            while name.contains(&format!("${}", i)) {
+                let arg = self.memory.read_byte(self.pc + i as u16);
+                name = name.replace(&format!("${}", i), &format!("{:02X}", arg));
+                i += 1;
+            }
+            return name;
+        }
+        name.to_string()
     }
 
     pub fn len(&self) -> u8 {
@@ -58,17 +70,17 @@ impl Instruction {
             0xDF => ("RST 18H", 1),
             0xE7 => ("RST 20H", 1),
             0xFF => ("RST 38H", 1),
-            0x3E => ("LD A, n", 2),
-            0x06 => ("LD B, n", 2),
-            0x0E => ("LD C, n", 2),
-            0x16 => ("LD D, n", 2),
+            0x3E => ("LD A, #$1", 2),
+            0x06 => ("LD B, #$1", 2),
+            0x0E => ("LD C, #$1", 2),
+            0x16 => ("LD D, #$1", 2),
             0x64 => ("LD H, H", 1),
             0x56 => ("LD D, E", 1),
             0x66 => ("LD H, (HL)", 1),
             0x5E => ("LD E, (HL)", 1),
-            0x1E => ("LD E, n", 2),
-            0x26 => ("LD H, n", 2),
-            0x2E => ("LD L, n", 2),
+            0x1E => ("LD E, #$1", 2),
+            0x26 => ("LD H, #$1", 2),
+            0x2E => ("LD L, #$1", 2),
             0x78 => ("LD A, B", 1),
             0x79 => ("LD A, C", 1),
             0x7A => ("LD A, D", 1),
@@ -118,21 +130,21 @@ impl Instruction {
             0x73 => ("LD (HL), E", 1),
             0x74 => ("LD (HL), H", 1),
             0x75 => ("LD (HL), L", 1),
-            0x36 => ("LD (HL), n", 2),
-            0x21 => ("LD HL, nn", 3),
-            0x2A => ("LD HL, (nn)", 3),
+            0x36 => ("LD (HL), #$1", 2),
+            0x21 => ("LD HL, $2$1", 3),
+            0x2A => ("LD HL, ($2$1)", 3),
             0xF9 => ("LD SP, HL", 1),
-            0x31 => ("LD SP, nn", 3),
+            0x31 => ("LD SP, #$2$1", 3),
             0x0A => ("LD A, (BC)", 1),
             0x1A => ("LD A, (DE)", 1),
-            0x3A => ("LD A, (nn)", 3),
+            0x3A => ("LD A, (#$2$1)", 3),
             0x7E => ("LD A, (HL)", 1),
-            0x01 => ("LD BC, nn", 3),
-            0x11 => ("LD DE, nn", 3),
+            0x01 => ("LD BC, #$2$1", 3),
+            0x11 => ("LD DE, #$2$1", 3),
             0x12 => ("LD (DE), A", 1),
-            0x32 => ("LD (nn), A", 3),
-            0x22 => ("LD (nn), HL", 3),
-            0x10 => ("DJNZ n", 2),
+            0x32 => ("LD (#$2$1), A", 3),
+            0x22 => ("LD (#$2$1), HL", 3),
+            0x10 => ("DJNZ #$1", 2),
             0x3C => ("INC A", 1),
             0x04 => ("INC B", 1),
             0x0C => ("INC C", 1),
@@ -162,7 +174,7 @@ impl Instruction {
             0x84 => ("ADD A, H", 1),
             0x85 => ("ADD A, L", 1),
             0x86 => ("ADD A, (HL)", 1),
-            0xC6 => ("ADD A, n", 2),
+            0xC6 => ("ADD A, #$1", 2),
             0x09 => ("ADD HL, BC", 1),
             0x19 => ("ADD HL, DE", 1),
             0x29 => ("ADD HL, HL", 1),
@@ -175,7 +187,7 @@ impl Instruction {
             0x8C => ("ADC A, H", 1),
             0x8D => ("ADC A, L", 1),
             0x8E => ("ADC A, (HL)", 1),
-            0xCE => ("ADC A, n", 2),
+            0xCE => ("ADC A, #$1", 2),
             0x97 => ("SUB A", 1),
             0x90 => ("SUB B", 1),
             0x91 => ("SUB C", 1),
@@ -184,7 +196,7 @@ impl Instruction {
             0x94 => ("SUB H", 1),
             0x95 => ("SUB L", 1),
             0x96 => ("SUB (HL)", 1),
-            0xD6 => ("SUB n", 2),
+            0xD6 => ("SUB #$1", 2),
             0x9F => ("SBC A, A", 1),
             0x98 => ("SBC A, B", 1),
             0x99 => ("SBC A, C", 1),
@@ -193,7 +205,7 @@ impl Instruction {
             0x9C => ("SBC A, H", 1),
             0x9D => ("SBC A, L", 1),
             0x9E => ("SBC A, (HL)", 1),
-            0xDE => ("SBC A, n", 2),
+            0xDE => ("SBC A, #$1", 2),
             0xA7 => ("AND A", 1),
             0xA0 => ("AND B", 1),
             0xA1 => ("AND C", 1),
@@ -202,7 +214,7 @@ impl Instruction {
             0xA4 => ("AND H", 1),
             0xA5 => ("AND L", 1),
             0xA6 => ("AND (HL)", 1),
-            0xE6 => ("AND n", 2),
+            0xE6 => ("AND #$1", 2),
             0xB7 => ("OR A", 1),
             0x07 => ("RLCA", 1),
             0xB0 => ("OR B", 1),
@@ -212,7 +224,7 @@ impl Instruction {
             0xB4 => ("OR H", 1),
             0xB5 => ("OR L", 1),
             0xB6 => ("OR (HL)", 1),
-            0xF6 => ("OR n", 2),
+            0xF6 => ("OR #$1", 2),
             0xAF => ("XOR A", 1),
             0xA8 => ("XOR B", 1),
             0xA9 => ("XOR C", 1),
@@ -221,8 +233,8 @@ impl Instruction {
             0xAC => ("XOR H", 1),
             0xAD => ("XOR L", 1),
             0xAE => ("XOR (HL)", 1),
-            0xEE => ("XOR n", 2),
-            0x18 => ("JR n", 2),
+            0xEE => ("XOR #$1", 2),
+            0x18 => ("JR #$1", 2),
             0x76 => ("HALT", 1),
             0x2F => ("CPL", 1),
             0xBF => ("CP A", 1),
@@ -232,7 +244,7 @@ impl Instruction {
             0xBB => ("CP E", 1),
             0xBC => ("CP H", 1),
             0xBD => ("CP L", 1),
-            0xFE => ("CP n", 2),
+            0xFE => ("CP #$1", 2),
             0xBE => ("CP (HL)", 1),
             0xDD => {
                 let opcode = self.memory.read_byte(self.pc.wrapping_add(1));
@@ -266,9 +278,9 @@ impl Instruction {
             0xE3 => ("EX (SP), HL", 1),
             0x08 => ("EX AF, AF'", 1),
             0xD9 => ("EXX", 1),
-            0xCC => ("CALL Z, nn", 3),
-            0xDC => ("CALL C, nn", 3),
-            0xCD => ("CALL nn", 3),
+            0xCC => ("CALL Z, #$2$1", 3),
+            0xDC => ("CALL C, #$2$1", 3),
+            0xCD => ("CALL #$2$1", 3),
             0xC9 => ("RET", 1),
             0xC8 => ("RET Z", 1),
             0xD8 => ("RET C", 1),
@@ -284,17 +296,17 @@ impl Instruction {
             0xD1 => ("POP DE", 1),
             0xE1 => ("POP HL", 1),
             0xF1 => ("POP AF", 1),
-            0xF2 => ("JP P, nn", 3),
-            0xC2 => ("JP NZ, nn", 3),
-            0xCA => ("JP Z, nn", 3),
-            0xD2 => ("JP NC, nn", 3),
-            0xDA => ("JP C, nn", 3),
-            0xFA => ("JP M, nn", 3),
-            0xC3 => ("JP nn", 3),
-            0x20 => ("JR NZ, n", 2),
-            0x28 => ("JR Z, n", 2),
-            0x30 => ("JR NC, n", 2),
-            0x38 => ("JR C, n", 2),
+            0xF2 => ("JP P, #$2$1", 3),
+            0xC2 => ("JP NZ, #$2$1", 3),
+            0xCA => ("JP Z, #$2$1", 3),
+            0xD2 => ("JP NC, #$2$1", 3),
+            0xDA => ("JP C, #$2$1", 3),
+            0xFA => ("JP M, #$2$1", 3),
+            0xC3 => ("JP #$2$1", 3),
+            0x20 => ("JR NZ, #$1", 2),
+            0x28 => ("JR Z, #$1", 2),
+            0x30 => ("JR NC, #$1", 2),
+            0x38 => ("JR C, #$1", 2),
             0x0F => ("RRCA", 1),
             0xCB => {
                 // Read extended opcode and execute it
@@ -310,8 +322,8 @@ impl Instruction {
             }
 
             // I/O
-            0xDB => ("IN A, (n)", 2),
-            0xD3 => ("OUT (n), A", 2),
+            0xDB => ("IN A, #$1", 2),
+            0xD3 => ("OUT #$1, A", 2),
 
             // Extended opcodes
             0xED => {

@@ -32,4 +32,10 @@ export const useStore = create((set) => ({
     const status = await response.json();
     set({ status });
   },
+
+  reset: async () => {
+    const response = await fetch("/api/reset", { method: "POST" });
+    const status = await response.json();
+    set({ status });
+  },
 }));

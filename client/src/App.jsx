@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import Memory from "./components/Memory";
-import Navbar from "./components/Navbar";
-import Program from "./components/Program";
-import Registers from "./components/Registers";
+import Memory from "./layout/Memory";
+import Navbar from "./layout/Navbar";
+import Program from "./layout/Program";
+import Registers from "./layout/Registers";
 import { useStore } from "./Store";
 
 function App() {
