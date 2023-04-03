@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 anyhow = "1.0.70"
-axum = {version = "0.6.12", features = ["query", "macros"]}
+axum = {version = "0.6.12", features = ["query", "macros", "ws"]}
 axum-extra = {version = "0.5", features = ["spa"]}
 bitflags = "2.0.2"
 clap = {version = "4.1.13", features = ["derive", "env"]}
