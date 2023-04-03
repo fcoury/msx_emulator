@@ -11,6 +11,13 @@ export default function Program() {
     fetchProgram();
   }, [addresses && addresses.includes(status?.pc)]);
 
+  useEffect(() => {
+    const el = document.querySelector(".opcode.selected");
+    if (el) {
+      el.scrollIntoViewIfNeeded();
+    }
+  }, [status?.pc, program]);
+
   if (!program) return null;
   if (!status) return null;
 
