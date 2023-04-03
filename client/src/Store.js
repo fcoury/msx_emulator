@@ -1,9 +1,13 @@
+import { Buffer } from "buffer";
 import { create } from "zustand";
+import { calculateMemoryHash } from "./Utils";
 
-export const useStore = create((set) => ({
+globalThis.Buffer = Buffer;
+
+export const useStore = create((set, get) => ({
   status: null,
   program: [],
-  memory: [],
+  memory: new Uint8Array(64 * 1024),
 
   setStatus: (status) => set({ status }),
   setProgram: (program) => set({ program }),
@@ -22,8 +26,15 @@ export const useStore = create((set) => ({
   },
 
   fetchMemory: async () => {
-    const response = await fetch("/api/memory");
-    const memory = await response.json();
+    const memory = get().memory;
+    const memoryHash = calculateMemoryHash(memory);
+    const response = await fetch(`/api/memory?hash=${memoryHash}`);
+    const deltaMemory = await response.json();
+
+    Object.entries(deltaMemory).forEach(([addr, value]) => {
+      memory[addr] = value;
+    });
+
     set({ memory });
   },
 

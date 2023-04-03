@@ -169,6 +169,10 @@ body {
   margin-right: 10px;
 }
 
+.hexdump__content--changed {
+  background-color: #ffeb3b; /* You can use any color of your choice */
+}
+
 .hexdump__content:nth-child(9) {
   margin-left: 10px;
 }

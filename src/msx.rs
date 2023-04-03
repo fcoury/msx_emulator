@@ -1,5 +1,7 @@
 use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
     fs::File,
+    hash::{Hash, Hasher},
     io::Read,
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -7,7 +9,8 @@ use std::{
 
 use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, trace};
+use twox_hash::XxHash64;
 
 use crate::{
     components::{bus::Bus, cpu::Z80, memory::Memory, sound::AY38910, vdp::TMS9918},
@@ -32,6 +35,8 @@ pub struct Msx {
     pub open_msx: bool,
     pub break_on_mismatch: bool,
     pub track_flags: bool,
+    pub previous_memory: Option<Vec<u8>>,
+    pub memory_hash: u64,
 }
 
 impl Msx {
@@ -53,6 +58,8 @@ impl Msx {
             open_msx: false,
             break_on_mismatch: false,
             breakpoints: Vec::new(),
+            previous_memory: None,
+            memory_hash: 0,
         }
     }
 
@@ -68,6 +75,40 @@ impl Msx {
         }
 
         msx
+    }
+
+    pub fn delta_memory(&mut self, client_hash: &str) -> HashMap<u16, u8> {
+        let mut delta_memory = HashMap::new();
+
+        if let Some(previous_memory) = self.previous_memory.as_ref() {
+            // Compare client_hash with self.memory_hash
+            if client_hash == self.memory_hash.to_string() {
+                for (index, (&prev_byte, &cur_byte)) in previous_memory
+                    .iter()
+                    .zip(self.cpu.memory.data.iter())
+                    .enumerate()
+                {
+                    if prev_byte != cur_byte {
+                        delta_memory.insert(index as u16, cur_byte);
+                    }
+                }
+            } else {
+                trace!("Memory hash mismatch, sending full memory dump");
+                for (index, &cur_byte) in self.cpu.memory.data.iter().enumerate() {
+                    delta_memory.insert(index as u16, cur_byte);
+                }
+            }
+        } else {
+            trace!("No previous memory, sending full memory dump");
+            for (index, &cur_byte) in self.cpu.memory.data.iter().enumerate() {
+                delta_memory.insert(index as u16, cur_byte);
+            }
+        }
+
+        self.memory_hash = calculate_memory_hash(&self.cpu.memory.data);
+        self.previous_memory = Some(self.cpu.memory.data.clone());
+
+        delta_memory
     }
 
     pub fn add_breakpoint(&mut self, address: u16) {
@@ -380,4 +421,10 @@ impl Msx {
 
         Ok(())
     }
+}
+
+fn calculate_memory_hash(memory: &[u8]) -> u64 {
+    let mut hasher = XxHash64::with_seed(0);
+    hasher.write(memory);
+    hasher.finish()
 }

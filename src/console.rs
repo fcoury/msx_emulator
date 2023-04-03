@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, RwLock},
@@ -6,6 +7,7 @@ use std::{
 
 use axum::{
     debug_handler,
+    extract::Query,
     routing::{get, post},
     Extension, Json, Router,
 };
@@ -46,9 +48,14 @@ impl Console {
 }
 
 #[debug_handler]
-async fn memory(Extension(msx): Extension<Arc<RwLock<Msx>>>) -> Json<serde_json::Value> {
-    let msx = msx.read().unwrap();
-    Json(json!(msx.cpu.memory.data))
+async fn memory(
+    Extension(msx): Extension<Arc<RwLock<Msx>>>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let mut msx = msx.write().unwrap();
+    Json(json!(
+        msx.delta_memory(query.get("hash").unwrap_or(&"".to_string()))
+    ))
 }
 
 #[debug_handler]

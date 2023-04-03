@@ -5,8 +5,6 @@ export default function Registers() {
 
   if (!status) return null;
 
-  console.log("status", status);
-
   const registers = status.registers.map((r) => (
     <div className="register" key={r.name}>
       <div className="register__name">{r.name.toUpperCase()}</div>

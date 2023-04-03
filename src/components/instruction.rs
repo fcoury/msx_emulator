@@ -40,6 +40,7 @@ impl Instruction {
         self.as_def().1
     }
 
+    #[allow(unused)]
     pub fn as_hex_vector(&self) -> Vec<String> {
         let (_, length) = self.as_def();
         let mut res = Vec::new();
