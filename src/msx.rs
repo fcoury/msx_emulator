@@ -21,9 +21,8 @@ use crate::{
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Msx {
     pub cpu: Z80,
-
-    vdp: TMS9918,
-    psg: AY38910,
+    pub vdp: TMS9918,
+    pub psg: AY38910,
 
     // #[serde(skip)]
     // display: Option<Display>,
@@ -81,6 +80,11 @@ impl Msx {
         let mut delta_memory = HashMap::new();
 
         if let Some(previous_memory) = self.previous_memory.as_ref() {
+            tracing::debug!(
+                "Client hash: {} Our hash: {}",
+                client_hash,
+                self.memory_hash
+            );
             // Compare client_hash with self.memory_hash
             if client_hash == self.memory_hash.to_string() {
                 for (index, (&prev_byte, &cur_byte)) in previous_memory

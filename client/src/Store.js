@@ -4,49 +4,86 @@ import { calculateMemoryHash } from "./Utils";
 
 globalThis.Buffer = Buffer;
 
-export const useStore = create((set, get) => ({
-  status: null,
-  program: [],
-  memory: new Uint8Array(64 * 1024),
+export const useStore = create((set, get) => {
+  const handleMessage = (message) => {
+    console.log("WebSocket message:", message);
+    if (message.type === "status") {
+      set({ status: message.data });
+    } else if (message.type === "program") {
+      set({ program: message.data });
+    } else if (message.type === "memory") {
+      const memory = get().memory;
+      const deltaMemory = message.data;
 
-  setStatus: (status) => set({ status }),
-  setProgram: (program) => set({ program }),
-  setMemory: (memory) => set({ memory }),
+      Object.entries(deltaMemory).forEach(([addr, value]) => {
+        memory[addr] = value;
+      });
 
-  fetchStatus: async () => {
-    const response = await fetch("/api/status");
-    const status = await response.json();
-    set({ status });
-  },
+      set({ memory });
+    } else if (message.type === "vram") {
+      set({ vram: message.data });
+    } else {
+      console.error("Unknown WebSocket message type:", message.type);
+    }
+  };
 
-  fetchProgram: async () => {
-    const response = await fetch("/api/program");
-    const program = await response.json();
-    set({ program });
-  },
+  const sendMessage = (message, data) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: message, data }));
+    }
+  };
 
-  fetchMemory: async () => {
-    const memory = get().memory;
-    const memoryHash = calculateMemoryHash(memory);
-    const response = await fetch(`/api/memory?hash=${memoryHash}`);
-    const deltaMemory = await response.json();
+  const ws = new WebSocket("ws://" + window.location.host + "/ws");
 
-    Object.entries(deltaMemory).forEach(([addr, value]) => {
-      memory[addr] = value;
-    });
+  ws.onopen = () => {
+    console.log("WebSocket connection opened");
+  };
 
-    set({ memory });
-  },
+  ws.onmessage = (event) => {
+    handleMessage(JSON.parse(event.data));
+  };
 
-  step: async () => {
-    const response = await fetch("/api/step", { method: "POST" });
-    const status = await response.json();
-    set({ status });
-  },
+  ws.onclose = () => {
+    console.log("WebSocket connection closed");
+  };
 
-  reset: async () => {
-    const response = await fetch("/api/reset", { method: "POST" });
-    const status = await response.json();
-    set({ status });
-  },
-}));
+  return {
+    status: null,
+    program: [],
+    vram: [],
+    memory: new Uint8Array(64 * 1024),
+    memoryLoading: false,
+    memoryError: null,
+
+    setStatus: (status) => set({ status }),
+    setProgram: (program) => set({ program }),
+    setMemory: (memory) => set({ memory }),
+
+    fetchStatus: async () => {
+      sendMessage("status");
+    },
+
+    fetchProgram: async () => {
+      sendMessage("program");
+    },
+
+    fetchMemory: async () => {
+      const hash = calculateMemoryHash(get().memory);
+      sendMessage("memory", { hash });
+    },
+
+    fetchVram: async () => {
+      sendMessage("vram");
+    },
+
+    step: async () => {
+      sendMessage("step");
+    },
+
+    reset: async () => {
+      const response = await fetch("/api/reset", { method: "POST" });
+      const status = await response.json();
+      set({ status });
+    },
+  };
+});

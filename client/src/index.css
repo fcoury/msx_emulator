@@ -137,7 +137,8 @@ body {
   flex: 1;
 }
 
-.memory {
+.memory,
+.vram {
   flex: 1;
   margin: 20px;
 }
